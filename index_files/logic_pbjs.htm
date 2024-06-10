@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html><head>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8"><script type="text/javascript" async="" src="logic_pbjs_data/publishertag.prebid.144.js"></script>
+		<title>prebid.js</title>
+		<meta charset="utf-8">
+		<style>
+			body {
+				margin: 0px;
+				overflow: hidden;
+				background-color: transparent;
+			}
+		</style>
+		<script>
+			// var prebidVersion = localStorage.prebidVersion || (localStorage.prebidVersion = Math.random() >= 0.5 ? "new" : "old"); // use this line, when new prebid version has to be tested
+			var prebidVersion = "new"; // if no test, use this line and leave the value always to "new"
+			/* init */
+			var pbjs = pbjs || {};
+			pbjs.que = pbjs.que || [];
+			pbjs.handleQueue = [];
+			pbjs.all_bids = {};
+			//pbjs.customTime = {startTime: (new Date()).getTime()};
+			pbjs.postmessageextender = {};
+			pbjs.wonBids = {};
+			pbjs.pubStackwonBids = {};
+			/* generic config */
+			pbjs.load_version = prebidVersion === "new" ? "48" : "47";
+			pbjs.er_usd_eur = 0.91762;
+			pbjs.logicv = '240531';
+			/* readcookie */
+			function getCookieValue(cookie) {
+				var val = document.cookie.match('(^|;)\\s*' + cookie + '\\s*=\\s*([^;]+)');
+				return val ? val.pop() : '';
+			}
+			/* debugging */
+			// document.cookie = 'pbjsdebug = 1; domain=.web.de; expires=Thu, 20 Jun 2020 14:37:06 GMT; path=/';
+			var isDev = window.location.href.indexOf("/dev/") !== -1 || window.location.href.indexOf("_dev") !== -1;
+			//document.write('<script src="https://'+location.host+'/tcf/'+(isDev ? "qa" : "live")+'/v1/js/tcf-stub.js"><\/script>');
+			function pbdbg(obj){
+				if(document.cookie.indexOf("pbjsdebug=1") !== -1){
+					if(typeof obj.message == "object" && obj.message.length == 2){console.log("%c" + obj.message[0] + (typeof obj.message[1] == "string" ? "%c " + obj.message[1] : ""),"color:black;font-weight:bold;",(typeof obj.message[1] == "string" ? "color:grey;" : ""),(typeof obj.message[1] !== "string" ? obj.message[1] : ""));} else if(typeof obj.message == "object" && obj.message.length == 3){console.log("%c" + obj.message[0] + "%c " + obj.message[1] + (typeof obj.message[2] == "string" ? "%c " + obj.message[2] : ""),"color:black;font-weight:bold;","color:darkgreen;font-weight:bold;",(typeof obj.message[2] == "string" ? "color:grey;" : ""),(typeof obj.message[2] !== "string" ? obj.message[2] : ""));} else if(typeof obj.message == "object" && obj.message.length > 3){console.log("%c" + obj.message[0] + "%c " + obj.message[1] + "%c " + obj.message[2] + (typeof obj.message[3] == "string" ? "%c " + obj.message[3] : ""),"color:black;font-weight:bold;","color:darkgreen;font-weight:bold;","color:grey;",(typeof obj.message[3] == "string" ? "color:orange;font-weight:bold;" : ""),(typeof obj.message[3] !== "string" ? obj.message[3] : ""));} else if(typeof obj.message == "object") {console.log(obj.message[0]);}
+				}
+			};
+			pbjs.resetGlobalConfig = function(){
+				pbjs.globalConfig = JSON.parse(window.name);
+			}
+			pbjs.resetGlobalConfig();
+			var showSection = pbjs.globalConfig.params.category == "mail" ? pbjs.globalConfig.params.section + "|" : "";
+			//pbdbg({message:["pbjs","generic","globalConfig",pbjs.globalConfig]});
+			// LOADING RESSOURCES
+			/* load tcf consent */
+			pbjs.customTCF_string = getCookieValue("euconsent-v2") != "" ? getCookieValue("euconsent-v2") : "";
+			pbjs.customTCF_gdpr = /^(true|1)$/.test(getCookieValue("GDNA")) && getCookieValue("euconsent-v2") == "" ? "0" : "1";
+			pbjs.custom_tpid = getCookieValue("idcc") == "2" && getCookieValue("tp_id") != "" ? getCookieValue("tp_id") : "";
+			//if(!(pbjs.globalConfig.params.hasOwnProperty("int") && pbjs.customTCF_gdpr == '0')){
+				pbjs.tcfcallbackQueue = [];
+				pbjs.runTCFqueue = function(){
+					//pbdbg({message:["pbjs","tcf_loaded"]});
+					if(pbjs.tcfcallbackQueue.length > 0) {
+						for(var i = 0; i < pbjs.tcfcallbackQueue.length; i++) {
+							pbjs.tcfcallbackQueue[i]();
+						}
+					}
+				}
+				window.__tcfapi = typeof window.__tcfapi !== "undefined" ? window.__tcfapi : function(action,version,callback) {
+					//pbdbg({message:["pbjs","run_tcfcall_from_custom_queue",[action,version,callback]]});
+					if(action != undefined && version != undefined && callback != undefined){pbjs.tcfcallbackQueue.push(function(){window.__tcfapi(action,version,callback);});}
+				}
+				if(pbjs.globalConfig.params.layoutclass == 's'/* || (pbjs.globalConfig.params.hasOwnProperty("int") && pbjs.globalConfig.params.portal == "gmxfr")*/){
+					document.write('<script src="https://'+location.host+'/tcf/'+(isDev ? "qa" : "live")+'/v1/js/tcf-stub.js" onload="pbjs.runTCFqueue()"><\/script>');
+				} else {
+					document.write('<script src="https://'+location.host+'/tcf/'+(isDev ? "qa" : "live")+'/v1/js/tcf-api.js" onload="pbjs.runTCFqueue()"><\/script>');
+				}
+			//} else {
+			//	pbdbg({message:["pbjs","int_tcf_disabled"]});
+			//}
+			/* load thirdparty */
+			if(pbjs.custom_tpid != ""){
+				var ixscript = document.createElement("script");
+				ixscript.src = "https://js-sec.indexww.com/ht/p/189131-10386831917551"+(isDev ? "-stage" : "")+".js";
+				ixscript.setAttribute("async","async");
+				document.getElementsByTagName("head")[0].appendChild(ixscript);
+			}
+			if(pbjs.globalConfig.params.hasOwnProperty("int")){
+				if(pbjs.customTCF_gdpr == '0'){
+					var pmscript = document.createElement("script");
+					pmscript.src = "https://ads.pubmatic.com/AdServer/js/pwt/157878/2487/pwt.js";
+					pmscript.setAttribute("async","async");
+					document.getElementsByTagName("head")[0].appendChild(pmscript);
+				}
+				window.addEventListener("load",function(){
+					var ylscript = document.createElement("iframe");
+					ylscript.src = "https://ad.yieldlab.net/d/6846326/766/2x2?ts="+Math.round(Math.random() * 9999999999)+"&type=h&gdpr="+pbjs.customTCF_gdpr+"&consent="+pbjs.customTCF_string;
+					document.getElementsByTagName("body")[0].appendChild(ylscript);
+				},false);
+			}
+			/* id syncs */
+			if(pbjs.customTCF_string != "" && !pbjs.globalConfig.params.hasOwnProperty("int") && getCookieValue("tp_id") != '' && pbjs.globalConfig.params.hasOwnProperty('external_uid')){
+				var ylid_pixel = {
+					ylid: null,
+					ylid_validate: null,
+					ylid_attempt: 0, 
+					getID: function () {
+						ylid_pixel.ylid_attempt++;
+						if (ylid_pixel.ylid_attempt >= 3 || typeof sessionStorage.prebid_ids_raw !== 'undefined') { return; }
+						var xhr = new XMLHttpRequest();
+						xhr.withCredentials = true;
+						xhr.onreadystatechange = function () {
+							if (xhr.readyState == 4 && xhr.status == 200) {
+								try {
+									var yl_response = JSON.parse(xhr.responseText);
+								} catch (e) { return; }
+								if (!yl_response.hasOwnProperty('uid') || yl_response.uid == '0' || yl_response.uid == '-1') {
+									sessionStorage.setItem('prebid_ids_raw',1);
+									return;
+								}
+								if (ylid_pixel.ylid == null) {
+									ylid_pixel.ylid = yl_response.uid;
+									ylid_pixel.getID();
+								} else {
+									ylid_pixel.ylid_validate = yl_response.uid;
+									if(ylid_pixel.ylid != ylid_pixel.ylid_validate) { return; }
+									ylid_pixel.sendID();
+								}
+							}
+						}
+						xhr.open('GET','https://ad.yieldlab.net/uid?ts='+Math.round(Math.random() * 9999999999)+'&gdpr='+pbjs.customTCF_gdpr+'&consent='+pbjs.customTCF_string,true);
+						xhr.send(null);
+					},
+					sendID: function () {
+						(new Image()).src = 'https://t.uimserv.net/drp_p/?evtID=927&sc='+pbjs.globalConfig.params.layoutclass+'&'+(pbjs.globalConfig.params.category == 'mail' ? 'haID='+pbjs.globalConfig.params.external_uid : 'att3='+getCookieValue("tp_id"))+'&att1=[yieldlab]&att2=[' + ylid_pixel.ylid + ']';
+						sessionStorage.setItem('prebid_ids_raw',1);
+					}
+				};
+				ylid_pixel.getID();
+				if (pbjs.custom_tpid != '' && typeof sessionStorage.prebid_idsync === 'undefined') {
+					(new Image()).src = 'https://c1.adform.net/serving/cookie/match?party=1208&gdpr='+pbjs.customTCF_gdpr+'&gdpr_consent='+pbjs.customTCF_string+'&redirect=https%3A%2F%2Ft.uimserv.net%2Fdrp_p%2F%3FevtID%3D927%26sc%3D'+pbjs.globalConfig.params.layoutclass+'%26'+(pbjs.globalConfig.params.category == 'mail' ? 'haID%3D'+pbjs.globalConfig.params.external_uid : 'att3%3D'+pbjs.custom_tpid)+'%26att1%3D%5Badform%5D%26att2%3D%5B__ADFUID__%5D';
+					(new Image()).src = 'https://ib.adnxs.com/getuidnb?https://t.uimserv.net/drp_p/?evtID=927&sc='+pbjs.globalConfig.params.layoutclass+'&'+(pbjs.globalConfig.params.category == 'mail' ? 'haID='+pbjs.globalConfig.params.external_uid : 'att3='+pbjs.custom_tpid)+'&att1=[xandr]&att2=[$UID]';
+					(new Image()).src = 'https://match.adsrvr.org/track/cmf/generic/?ttd_pid='+(pbjs.globalConfig.params.category == 'mail' ? 'd4ahh1a' : 'h3o8xsv')+'&ttd_tpi=1&gdpr='+pbjs.customTCF_gdpr+'&gdpr_consent='+pbjs.customTCF_string+'&ttd_puid='+(pbjs.globalConfig.params.category == 'mail' ? pbjs.globalConfig.params.external_uid : pbjs.custom_tpid);
+					try{
+						if(localStorage.id5id && localStorage.id5id_privacy && JSON.parse(localStorage.id5id_privacy).id5_consent) {
+							(new Image()).src = 'https://t.uimserv.net/drp_p/?evtID=927&sc='+pbjs.globalConfig.params.layoutclass+'&'+(pbjs.globalConfig.params.category == 'mail' ? 'haID='+pbjs.globalConfig.params.external_uid : 'att3='+getCookieValue("tp_id"))+'&att1=[id5]&att2=[' + JSON.parse(decodeURIComponent(localStorage.id5id)).universal_uid + ']';
+						}
+					}catch(e){pbdbg({message:["pbjs", e,"id5 drp"]});}
+					sessionStorage.setItem('prebid_idsync',1);
+				}
+			}
+			/* load prebid */
+			pbjs.script = document.createElement("script");
+			pbjs.script.async = 1;
+			pbjs.script.src = "//"+location.host+"/uim/container/prebid"+(pbjs.globalConfig.params.hasOwnProperty("int") ? "-int" : "")+"_" + (isDev ? "dev" : pbjs.load_version) + ".js";
+			document.getElementsByTagName("head")[0].appendChild(pbjs.script);
+			/* tgp */
+			var pbTargeting = pbjs.globalConfig.params.hasOwnProperty("targeting") ? Object.assign(pbjs.globalConfig.params.targeting,{}) : {};
+			try {
+				if(sessionStorage.prebid_tgp){
+					var temp_targeting = JSON.parse(sessionStorage.prebid_tgp);
+					if(typeof temp_targeting.store == "object" && !(temp_targeting.store instanceof Array) && (pbjs.globalConfig.params.category == "logout" || pbjs.globalConfig.params.category == "mail")) {
+						pbTargeting = Object.assign(temp_targeting.store,pbTargeting);
+					} else if(typeof temp_targeting.cookie == "object" && !(temp_targeting.cookie instanceof Array)) {
+						pbTargeting = Object.assign(temp_targeting.cookie,pbTargeting);
+					}
+				}
+				if(localStorage.prebid_tgp){
+					var temp_ltargeting = JSON.parse(localStorage.prebid_tgp);
+					pbTargeting = Object.assign(temp_ltargeting,pbTargeting);
+				}
+			} catch(e) { }
+			/* tgp end */
+			/* amzn start */
+			var iframeconnector = document.createElement("script");
+			iframeconnector.src = "https://"+location.host+"/uim/bidding/connector.js";
+			iframeconnector.addEventListener("load",function(e){
+				window.amznbidding = new Connector({
+					connectionName: 'amznbidding',
+					windowName: 'hiddeniframe',
+					windowCount: 2
+				});
+				window.amznbidding.init();
+			});
+			document.getElementsByTagName("head")[0].appendChild(iframeconnector);
+			var amznscript = document.createElement("script");
+			amznscript.src = "//c.amazon-adsystem.com/aax2/apstag.js";
+			document.getElementsByTagName("head")[0].appendChild(amznscript);
+			!function(a9,a,p,s,t,A,g){if(a[a9])return;function q(c,r){a[a9]._Q.push([c,r])}a[a9]={init:function(){q("i",arguments)},fetchBids:function(){q("f",arguments)},setDisplayBids:function(){},targetingKeys:function(){return[]},dpa:function(){q("di",arguments)},rpa:function(){q("ri",arguments)},upa:function(){q("ui",arguments)},_Q:[]};}("apstag",window);
+			apstag.init({
+				pubID: '3206',
+				deals:true,
+				bidTimeout: pbjs.globalConfig.timeout.initial.bidder+(isDev ? -2000 : 0),
+				gdpr:{cmpTimeout: pbjs.globalConfig.timeout.cmp}
+				//...(!(pbjs.globalConfig.params.hasOwnProperty("int") && pbjs.customTCF_gdpr == '0') && {gdpr:{cmpTimeout: pbjs.globalConfig.timeout.cmp}})
+			});
+			if(pbTargeting.hasOwnProperty("T9429")){
+				//pbdbg({message:["pbjs::amzn",showSection+"uids","T9429::"+pbTargeting.T9429]});
+				apstag.rpa({
+					hashedRecords:[{type:'email',record:pbTargeting.T9429}]
+				});
+			}
+			/* amzn end */
+			/* pubstack */
+			var pbstcksite = {'webde|homepage':'0381ca50-4030-4c82-84c2-37d6b61b9d3e','webde|magazine':'44220084-89fd-4ddf-b95c-8a67267d368e','webde|partnernews':'de70aadd-e113-4872-95ec-d0e73c2b3d77','webde|logout':'3c48f23f-a3ae-4f04-8f8b-7c008e617ab4','webde|mioklick':'085dad80-80c6-427d-acbf-c8645e7e2dc6','gmx|homepage':'02732ef0-b291-48ea-b248-9a2b7656ccfe','gmx|magazine':'ffe1c363-58cf-46e4-ac1f-cd020a0d434e','gmx|partnernews':'6d671cb6-9b42-4329-aee3-28c9abad34ff','gmx|logout':'4bfa0404-2ef3-4cc1-9229-c11410d61232','gmx|mioklick':'296adab2-58dd-4edb-922f-b3dc940933f3','gmxat|homepage':'fd18cae3-7367-482c-b7ef-557eb241ae44','gmxat|magazine':'04b538d0-8e42-4b78-9824-70d2b5ec9f1d','gmxat|partnernews':'f763ef83-78f2-49f4-9838-584d59a5dcd6','gmxat|logout':'40773f34-0442-4ab5-af72-59aef4556de4','gmxch|homepage':'8911e438-7773-4927-954c-116c7eb46330','gmxch|magazine':'b8f7fa0b-adb4-495e-9455-f6e60ddde630','gmxch|partnernews':'84b5d398-84df-4a27-8c04-0a71da55e989','gmxch|logout':'6c8952e6-8f61-45bc-9b7f-321b6be2eb3b','1und1|homepage':'3182fb7f-62c8-4015-ba30-dea423e53012','1und1|magazine':'b11323cb-e727-4e67-a310-d68ef4b73e29','1und1|partnernews':'2ab31bb2-abc7-4d80-ae7c-9b3c6117020d','mailcom|homepage':'43bcf9e4-54f1-44c7-a372-5c74dd47dac6','mailcom|magazine':'28bcacf2-5ca0-4e56-92a3-15d92c27c899','mailcom|logout':'b8e0386b-17a3-4219-8f7b-ecb9e96f4bbc','mailcom|mail':'bfce455b-7ef5-4a8b-a9c5-571ec1cc6952','gmxcom|homepage':'d41cfcdd-ec96-4027-ad22-053661cbaf23','gmxcom|magazine':'41ec8474-b329-48de-acb5-f2ce6d8eec25','gmxcom|logout':'415e3e14-1136-4e38-9102-eff9d5ad0bf9','gmxcom|mail':'39fb1ddf-e76a-4bc7-aaab-527fedbc09cb','gmxes|homepage':'ffb9ca43-779f-444f-a8d3-3d9b1be5282b','gmxes|magazine':'f7bceab3-8699-4735-9aba-f918fac7b9fa','gmxes|logout':'b103c0db-174d-4aef-a717-170d117c694b','gmxes|mail':'fe0a29f3-cb5d-4abc-8b2f-e7f4005e0184','gmxfr|homepage':'80ef5de8-0cf4-4c0c-9048-b227ad8a8701','gmxfr|magazine':'09218680-536e-4675-aaea-b0fe522017b3','gmxfr|logout':'4f2254c4-8646-4116-be6c-d4ee8ff9afc9','gmxfr|mail':'f9ed0aaf-9cbd-4187-bf7c-d2fc20723648','gmxcouk|homepage':'d2e4b53d-9e81-4675-9e1a-a1cc0ea8cf1c','gmxcouk|magazine':'864466c8-2c03-440d-a973-004390b828d4','gmxcouk|logout':'ddfe01cd-46c5-4039-b8bd-c60d0a905d1c','gmxcouk|mail':'f9c3cedf-a5ee-4829-a9bd-24abdb22fc98','webde|mail':'f7339003-9112-443a-808e-747a17eb905c','gmx|mail':'629c0b26-70c9-4dd2-9346-0c788f7e2e6e','gmxat|mail':'fa62d203-d9e9-4043-8d83-7e73ca9cdbfc','gmxch|mail':'b9af270b-3a14-4b28-b8fe-74035bd9643b','1und1|mail':'f0152893-7c41-4690-9039-a7f386e399c5'}[pbjs.globalConfig.params.portal+'|'+pbjs.globalConfig.params.category];
+			var pbstcks = document.createElement("script");
+			pbstcks.async = 1;
+			pbstcks.src = "https://boot.pbstck.com/v1/tag/"+pbstcksite;
+			document.getElementsByTagName("head")[0].appendChild(pbstcks);
+			/* pubstack ab_test start */
+			var meta = document.createElement('meta');
+			meta.name = "pbstck_context:pbstck_ab_test";
+			meta.content = `prebid_${pbjs.load_version}`;
+			document.getElementsByTagName('head')[0].appendChild(meta);
+			/* pubstack ab_test end */
+			/* pubstack end */
+			/* yl id */
+			var yl_id = "";
+			if(localStorage.prebid_ids){
+				try {
+					var yl_id_raw = JSON.parse(localStorage.prebid_ids);
+					if(yl_id_raw.hasOwnProperty("yieldlab") && yl_id_raw.yieldlab.hasOwnProperty("profile") && yl_id_raw.yieldlab.profile.length > 0 && /[a-z0-9-]{1,}/g.test(yl_id_raw.yieldlab.profile[0])){
+						yl_id = yl_id_raw.yieldlab.profile[0];
+					}
+				} catch(e) { }
+			}
+			/* yl id end */
+			/* liveramp id */
+			var hashedMailSHA256 = (localStorage.prebid_tgp && JSON.parse(localStorage.prebid_tgp).T9429) && JSON.parse(localStorage.prebid_tgp).T9429;
+			var expirationTimestamp = Date.now() + 2592000000; // 30 days
+			async function liveRampATSCall(type){
+				var isRefresh = type === "refresh";
+				var liveRampEndpoint = `https://api.rlcdn.com/api/identity/v2/envelope${isRefresh ? "/refresh" : ""}?pid=14038&it=${isRefresh ? "19" : "4"}&iv=${isRefresh ? JSON.parse(atob(localStorage._lr_env)).envelope[0] : hashedMailSHA256}&ct=4&cv=${pbjs.customTCF_string}`;
+				try {
+					var response = await fetch(liveRampEndpoint);
+					if(response.ok) {
+						var res = await response.json();
+						localStorage.setItem("_lr_env", btoa(JSON.stringify({"envelope": [res.envelopes[0].value]})));
+						localStorage.setItem("_lr_env_exp", expirationTimestamp);
+					}
+				} catch(e){pbdbg({message:["pbjs error: liverampCallFunction", e]})}
+			}
+			
+			try {
+				if (!/^(gmxes|gmxfr|gmxcouk)$/.test(pbjs.globalConfig.params.portal) && hashedMailSHA256 && (pbjs.globalConfig.params.category === "mail" && pbjs.globalConfig.initial.findIndex(el => el.includes(pbjs.globalConfig.params.layoutclass === "s" ? "bottom" : "right")) === 0 || pbjs.globalConfig.params.category !== "mail")) {
+					var refreshTime = 86400000; // 24 hours
+					if(!localStorage._lr_env || localStorage._lr_env_exp < Date.now()) {
+						liveRampATSCall("call");
+					}else if(localStorage._lr_env && localStorage._lr_env_exp < expirationTimestamp - refreshTime) {
+						liveRampATSCall("refresh");
+					}
+				}
+			} catch(e){pbdbg({message:["pbjs error: liverampCall", e]})}
+			/* liveramp id end*/
+			pbjs.cdl = '';
+			if ('cookieDeprecationLabel' in navigator) {
+				navigator.cookieDeprecationLabel.getValue().then((label) => {
+					if (label && /\w+\d+\.?\d?/.test(label)) {
+						pbjs.cdl = label;
+					}
+				});
+			}
+			// LOADING RESSOURCES END
+			//pbdbg({message:["pbjs",showSection+"generic","load"]});
+			/* temp fix */ pbjs.frameLoaded = 0;pbjs.firstMessage = {'nextAllowed':false,'message':null};
+			pbjs.bidderSettings = { /*yieldlab: { bidCpmAdjustment: function(bidCpm){ return bidCpm * 0.938; } },*/ appnexus: { bidCpmAdjustment: function(bidCpm){ return bidCpm * pbjs.er_usd_eur; } }, pubmatic: { bidCpmAdjustment: function(bidCpm){ return bidCpm * pbjs.er_usd_eur; }, allowAlternateBidderCodes: true, allowedAlternateBidderCodes: ["groupm"] }, triplelift: { bidCpmAdjustment: function(bidCpm){ return bidCpm * pbjs.er_usd_eur; } }, criteo: { storageAllowed: true }, taboola: { storageAllowed: true } };
+			if(!pbjs.globalConfig.params.hasOwnProperty("int") && (localStorage.prebid_id_unified || localStorage.prebid_id_criteo || localStorage.prebid_id_shared || yl_id !== "")){
+				var sendIDs = {'pbjsuids':{}};
+				if(localStorage.prebid_id_unified){
+					var temp_unified = JSON.parse(decodeURIComponent(localStorage.prebid_id_unified));
+					sendIDs.pbjsuids['adserver.org'] = temp_unified.hasOwnProperty("TDID") ? temp_unified.TDID : undefined;
+				}
+				if(localStorage.prebid_id_criteo){
+					var temp_criteo = JSON.parse(decodeURIComponent(localStorage.prebid_id_criteo));
+					sendIDs.pbjsuids['criteo.com'] = temp_criteo.hasOwnProperty("criteoId") ? temp_criteo.criteoId : undefined;
+				}
+				if(localStorage.prebid_id_shared){
+					sendIDs.pbjsuids['pubcid.org'] = localStorage.prebid_id_shared;
+				}
+				if(pbTargeting.hasOwnProperty("T9410")){
+					sendIDs.pbjsuids['google.com'] = pbTargeting.T9410.substring(0,44);
+				}
+				if(yl_id !== ""){
+					sendIDs.pbjsuids['ylid'] = yl_id;
+				}
+				if(localStorage.id5id/* && (yl_id !== "" && yl_id.split("_")[1] === "15") || pbjs.globalConfig.params.portal === "webde"*/){
+					var temp_id5 = JSON.parse(decodeURIComponent(localStorage.id5id));
+					sendIDs.pbjsuids['id5-sync.com'] = temp_id5.hasOwnProperty("universal_uid") ? temp_id5.universal_uid : undefined;
+				}
+				if(!/^(gmxes|gmxfr|gmxcouk)$/.test(pbjs.globalConfig.params.portal) && hashedMailSHA256 && localStorage.idl_env){
+					sendIDs.pbjsuids['liveramp.com'] = localStorage.idl_env;
+				}
+				var neorypbjs = "";
+				if((pbTargeting.hasOwnProperty('T9380') && pbTargeting.T9380.indexOf('z') !== -1) || (pbTargeting.hasOwnProperty('T178') && pbTargeting.T178.indexOf('1') !== -1)){
+					neorypbjs += "a"; // PIBA 
+				}
+				if((pbTargeting.hasOwnProperty('T9380') && (pbTargeting.T9380.indexOf('2') !== -1 || pbTargeting.T9380.indexOf('3') !== -1))){
+					neorypbjs += "b"; // Display
+				}
+				sendIDs.pbjsuids['neorypbjs'] = neorypbjs;
+				parent.postMessage(sendIDs,document.referrer);
+				pbdbg({message:['pbjs','generic','sendIDs',sendIDs]});
+				//console.log("pbjs::idssend::",sendIDs);
+			}
+			pbjs.que.push(function() {
+				pbjs.setConfig({
+					"userSync": {
+						"filterSettings":{"all":{"bidders":["unifiedId","criteo","netId","sharedId","appnexus"],"filter":"include"}},
+						"userIds":[
+							{"name":"unifiedId","params":{"url":"//match.adsrvr.org/track/rid?ttd_pid=51kb8ap&fmt=json&gdpr="+pbjs.customTCF_gdpr+"&gdpr_consent="+pbjs.customTCF_string},"storage":{"type":"html5","name":"prebid_id_unified","expires":365}},
+							{"name":"criteo","storage":{"type":"html5","name":"prebid_id_criteo","expires":365}},
+							{"name":"netId","value":{"netId":pbjs.custom_tpid != '' ? pbjs.custom_tpid : null},"bidders":/^(gmx|webde)$/.test(pbjs.globalConfig.params.portal) && yl_id !== "" && yl_id.split("_")[1] === "13" ? ["neory"] : ["criteo","yieldlab","appnexus",/*"orbidder",*/"rubicon","adform","pubmatic","ix","smart","neory"]},
+							{"name":"ylid","value":{"ylid":yl_id !== "" && yl_id.split("_")[0] != "" ? yl_id.split("_")[0] : null}},
+							{"name":"sharedId","storage":{"type":"html5","name":"prebid_id_shared","expires":365}},
+							{"name":"pairId","bidders":["yieldlab"],"value":{"pairId":(pbTargeting.hasOwnProperty("T9410")) ? pbTargeting.T9410.substring(0,44) : null}},
+							...(!/^(gmxes|gmxfr|gmxcouk)$/.test(pbjs.globalConfig.params.portal) && hashedMailSHA256 ? [{"name":"identityLink","params":{"pid": "14038","notUse3P": true},"storage":{"type":"html5","name":"idl_env","expires": 30,"refreshInSeconds":86400}}] : []),
+							/*...(yl_id !== "" && yl_id.split("_")[1] === "15" || pbjs.globalConfig.params.portal === "webde" ? [*/{name: "id5Id",params:{partner:1511},storage:{type:"html5","name":"id5id","expires":30,"refreshInSeconds":86400}}/*] : [])*/
+						],
+						"topics": { 
+							"maxTopicCaller": 1,
+							"bidders": [
+									{"bidder":"taboola","expiry":7,"iframeURL":"https://cdn.taboola.com/libtrc/static/topics/taboola-prebid-browsing-topics.html"},
+									{"bidder":"pubmatic","expiry":7,"iframeURL":"https://ads.pubmatic.com/AdServer/js/topics/topics_frame.html"},
+									{"bidder":"openx","expiry":7,"iframeURL":"https://pa.openx.net/topics_frame.html"},
+									{"bidder":"improvedigital","expiry":7,"iframeURL":"https://hb.360yield.com/privacy-sandbox/topics.html"}
+								]
+						}
+					},
+					"priceGranularity": pbjs.globalConfig.params.hasOwnProperty("int") ? /*"medium"*/"dense" : "high",
+					"bidderSequence": "random",
+					"enableSendAllBids": true,
+					"cache": {"url": "https://prebid.adnxs.com/pbc/v1/cache"},
+					"pageUrl": {'webde':'https://web.de','gmx':'https://www.gmx.net','gmxat':'https://www.gmx.at','gmxch':'https://www.gmx.ch','1und1':'https://home.1und1.de','mailcom':'https://www.mail.com','gmxcom':'https://www.gmx.com','gmxes':'https://www.gmx.es','gmxfr':'https://www.gmx.fr','gmxcouk':'https://www.gmx.co.uk'}[pbjs.globalConfig.params.portal]+{'homepage|false':'','mioklick|false':'','logout|false':'/logoutlounge/','mail|false':'','magazine|false':pbjs.globalConfig.params.location || '','partnernews|false':pbjs.globalConfig.params.location || '','homepage|true':'','logout|true':'/logout/','mail|true':'','magazine|true':pbjs.globalConfig.params.location || '','partnernews|true':pbjs.globalConfig.params.location || ''}[pbjs.globalConfig.params.category+'|'+pbjs.globalConfig.params.hasOwnProperty("int")],
+					"improvedigital": { usePrebidSizes: true },
+					"consentManagement":{"gdpr":{"cmpApi":"iab","timeout":pbjs.globalConfig.timeout.cmp,"defaultGdprScope":true}},
+					...(pbjs.globalConfig.params.portal === "mailcom" && {
+						"paapi": {
+							"enabled": true,
+							"bidders": ["criteo"],
+							"gpt": {
+								"autoconfig": false
+							}
+						}
+					})
+					//...(!(pbjs.globalConfig.params.hasOwnProperty("int") && pbjs.customTCF_gdpr == '0') && {"consentManagement":{"gdpr":{"cmpApi":"iab","timeout":pbjs.globalConfig.timeout.cmp,"defaultGdprScope":true}}})
+				});
+				var cdbIdMapping = {"webde":"2558","gmx": "2558","1und1":"2558","gmxat":"1400","gmxch":"1399","mailcom":"8076", "gmxes":"8076","gmxfr":"8076","gmxcom":"8076","gmxcouk":"8076"};
+				var cdbConfig = {ortb2:{user:{},site:{publisher:{id:cdbIdMapping[pbjs.globalConfig.params.portal]}}}, ...(pbjs.globalConfig.params.portal === "mailcom" && {fledgeEnabled: true})};
+				//var cdbData = [];
+				if(pbjs.globalConfig.params.hasOwnProperty("idfa") && pbjs.globalConfig.params.hasOwnProperty("sys") && pbjs.globalConfig.params.idfa != ""){
+					//pbdbg({message:["pbjs",showSection+"uids","maid::"+pbjs.globalConfig.params.idfa]});
+					cdbConfig.ortb2.user.deviceid = pbjs.globalConfig.params.idfa;
+					cdbConfig.ortb2.user.deviceidtype = (pbjs.globalConfig.params.sys == "and" ? 'gaid' : 'idfa');
+				}
+				if(pbTargeting.hasOwnProperty("T9429")){
+					//pbdbg({message:["pbjs",showSection+ "::T9429(0,16)::"+pbTargeting.T9429.slice(0,16)]});
+					cdbConfig.ortb2.user.ext = {data:{eids:[{source:"uim.de",uids: [{id:pbTargeting.T9429.slice(0,16),atype:3,ext:{stype:"ppuid"}}]}]}};
+				}
+				/*if(pbTargeting.hasOwnProperty("iabCategories") && pbTargeting.iabCategories.length > 0){
+					cdbData = [{name:"united-internet-media.de",segment:pbTargeting.iabCategories}];
+				}*/
+				pbjs.setBidderConfig({bidders:['criteo'],config:cdbConfig});
+				pbjs.enableAnalytics([
+					...(!pbjs.globalConfig.params.hasOwnProperty("int") && /^(gmx|webde|1und1)$/.test(pbjs.globalConfig.params.portal) ? [{provider:"agma",options:{code:pbjs.globalConfig.params.portal}}] : []),
+					...(!/^(gmxes|gmxfr|gmxcouk)$/.test(pbjs.globalConfig.params.portal) ? [{provider:"atsAnalytics",options:{pid:"14038"}}] : []),
+					{provider: 'id5Analytics',options: {partnerId: 1511}}
+				]);
+			});
+			/* frame loaded */
+			pbjs.que.push(function() {
+				pbjs.frameLoad(1);
+			});
+			pbjs.frameLoad = function(type){
+				pbdbg({message:["pbjs",showSection+"generic",(type != 1 ? "onload_loaded" : "pbjs_loaded")]});
+				if(pbjs.frameLoaded==0){
+					pbjs.frameLoaded = 1;
+					parent.postMessage(JSON.stringify({"type":"CALL","name":"auctionIframeReady"}), '*');
+					if(pbjs.globalConfig.initial.length > 0){
+						pbjs.createCall(pbjs.globalConfig.initial,1);
+					}
+				}
+			}
+			/* create call */
+			pbjs.createCall = function(adtypes,initial) {
+				if(adtypes != null){
+					adtypes = typeof adtypes == "string" ? [adtypes] : adtypes;
+					pbjs.handleQueue.push({status:0,startTime:(new Date()).getTime(),slots:adtypes,partner_response:{},bids:{},prebid_slots_to_load:[],amzn_slots_to_load:[],amzn_ready:0,prebid_ready:0,refresh:typeof initial == 'object' ? initial : {}});
+				}
+				var runningQueue = pbjs.handleQueue.filter(function(el){if(el.status == 1){return el;}});
+				var openQueue = pbjs.handleQueue.filter(function(el){if(el.status == 0){return el;}});
+				if((runningQueue.length != "0" && openQueue.length > 1 ) || openQueue.length > 1){
+					var combinedSlots = [], firstTime = null;
+					for(var i = 0; i < openQueue.length; i++) {
+						firstTime = firstTime == null ? openQueue[i].startTime : firstTime;
+						combinedSlots = combinedSlots.concat(openQueue[i].slots);
+						/*var temp_queue_to_disable = pbjs.handleQueue.indexOf({status:openQueue[i].status,startTime:openQueue[i].startTime,slots:openQueue[i].slots,partner_response:openQueue[i].partner_response,bids:openQueue[i].bids,prebid_slots_to_load:openQueue[i].prebid_slots_to_load,amzn_slots_to_load:openQueue[i].amzn_slots_to_load,amzn_ready:openQueue[i].amzn_ready,prebid_ready:openQueue[i].prebid_ready});
+						if(temp_queue_to_disable !== -1){
+							pbjs.handleQueue[temp_queue_to_disable].status = 3;
+						}*/
+						try {
+							var temp_queue_to_disable = pbjs.handleQueue.findIndex(function(object) {return object.status === openQueue[i].status && object.startTime === openQueue[i].startTime && object.partner_response === openQueue[i].partner_response && object.bids === openQueue[i].bids && object.prebid_slots_to_load === openQueue[i].prebid_slots_to_load && object.amzn_slots_to_load === openQueue[i].amzn_slots_to_load && object.amzn_ready === openQueue[i].amzn_ready && object.prebid_ready === openQueue[i].prebid_ready && object.slots === openQueue[i].slots});
+							if(temp_queue_to_disable !== -1){
+								pbjs.handleQueue[temp_queue_to_disable].status = 3;
+							}
+						} catch(e) {
+							pbdbg({message:["pbjs error: findIndex method", e]})
+						}
+					}
+					pbjs.handleQueue.push({status:0,startTime:firstTime,slots:combinedSlots,partner_response:{},bids:{},prebid_slots_to_load:[],amzn_slots_to_load:[],amzn_ready:0,prebid_ready:0,refresh:{}});
+					pbdbg({message:["pbjs",combinedSlots,"combined_slots"]});
+				}
+				if(runningQueue.length == "0" && openQueue.length == "1"){
+					var current_process = openQueue[0];
+					//pbjs.handleQueue.find(obj => obj.status == 0).status = 1;
+					pbjs.handleQueue.filter(function(obj){return obj.status == 0})[0].status = 1;
+					pbdbg({message:["pbjs",showSection+current_process.slots.toString(),"current_process",current_process]});
+					//REMOVE OLD SLOTS
+					if(typeof pbjs.adUnits !== "undefined" && pbjs.adUnits.length > 0){
+						var temp_slots_to_remove = [];
+						for(var disableslots in pbjs.adUnits){
+							temp_slots_to_remove.push(pbjs.adUnits[disableslots].code);
+						}
+						for(var disableslot in temp_slots_to_remove){
+							//pbdbg({message:["pbjs",temp_slots_to_remove[disableslot],"remove_slot"]});
+							pbjs.removeAdUnit(temp_slots_to_remove[disableslot]);
+						}
+						temp_slots_to_remove = [];
+					}
+					//ADD SLOTS
+					//pbdbg({message:["pbjs",showSection+current_process.slots.toString(),"config_requestet"]});
+					for(var tempgivenslot in current_process.slots){
+						if(pbjs.wonBids.hasOwnProperty(current_process.slots[tempgivenslot])){
+							delete pbjs.wonBids[current_process.slots[tempgivenslot]];
+						}
+						pbjs.all_bids[current_process.slots[tempgivenslot]] = {"ads":[],"winner":null,responseTime:{},startTime:current_process.startTime,endTime:null,initial:initial == "1" ? 1 : undefined};
+						//console.log("pbjs",pbjs.all_bids);
+						var objectkeys = Object.keys(pbjs.globalConfig.slots);
+						for(var tempslots in objectkeys){
+							if(objectkeys[tempslots] == current_process.slots[tempgivenslot] || (current_process.slots[tempgivenslot].search(/\_(x|[0-9])$/g) == current_process.slots[tempgivenslot].length-2 && objectkeys[tempslots] == current_process.slots[tempgivenslot].substr(0,current_process.slots[tempgivenslot].length-2) && objectkeys[tempslots] != current_process.slots[tempgivenslot] && objectkeys.hasOwnProperty(tempslots) == 0)){
+								var lazyloaded = current_process.slots[tempgivenslot].search(/\_(x|[0-9])$/g) !== -1 ? 1 : 0;
+								var replace = new RegExp(objectkeys[tempslots]+"(\_(x|[0-9]))?","g");
+								var temp_slots = pbjs.globalConfig.slots[objectkeys[tempslots]];
+								if(lazyloaded){
+									for(var rnslot in temp_slots){
+										if(temp_slots[rnslot].hasOwnProperty("code") == 1){
+											temp_slots[rnslot].code = temp_slots[rnslot].code.replace(replace,current_process.slots[tempgivenslot]);
+										}
+									}
+								}
+								if(typeof temp_slots == "object"){
+									/* amzn start */
+									for(var amznslot in temp_slots){
+										if(temp_slots[amznslot].hasOwnProperty("amazon") == 1){
+											if(temp_slots[amznslot].amazon == 1){
+												if(lazyloaded){
+													temp_slots[amznslot].params.slotID = temp_slots[amznslot].params.slotID.replace(replace,current_process.slots[tempgivenslot]);
+												}
+												current_process.amzn_slots_to_load.push(temp_slots[amznslot].params);
+											}
+										}
+									}
+									current_process.prebid_slots_to_load = current_process.prebid_slots_to_load.concat(temp_slots.filter(function(val){if(val.hasOwnProperty("amazon") != 1){return 1}}));
+									/* amzn end */
+								}
+							}
+						}
+					}
+					//pbdbg({message:["pbjs","generic","final_slot_config",pbjs.slots_to_load]});
+					if(Object.keys(current_process.prebid_slots_to_load).length !== 0){
+						pbjs.que.push(function() {
+							pbjs.addAdUnits(pbjs.extendTGP(current_process.prebid_slots_to_load,current_process.refresh));
+							pbdbg({message:["pbjs",showSection+current_process.slots.toString(),"slot_configs",pbjs.extendTGP(current_process.prebid_slots_to_load,current_process.refresh)]});
+							pbjs.requestBids({
+								timeout: initial == "1" ? pbjs.globalConfig.timeout.initial.bidder : pbjs.globalConfig.timeout.slots[current_process.slots.length-1].bidder,
+								bidsBackHandler: function(bidsEvent){
+									if(pbjs.globalConfig.params.portal === "mailcom") {
+										try {
+											pbjs.setPAAPIConfigForGPT();
+										} catch(e){
+											pbdbg({message:["pbjs error: setPAAPIConfigForGPT", e]})
+										}
+									}
+									pbjs.handleData(bidsEvent);
+								}
+							});
+						});
+					} else {
+						pbdbg({message:["pbjs",showSection+current_process.slots.toString(),"no_config"]});
+						current_process.prebid_ready = 1;
+						pbjs.finalDoings();
+					}
+					/* amzn start */
+					//pbjs.postmessageextender = {};
+					if(Object.keys(current_process.amzn_slots_to_load).length !== 0 && typeof apstag !== 'undefined'){
+						pbdbg({message:["pbjs::amzn",showSection+current_process.slots.toString(),"slot_configs",current_process.amzn_slots_to_load]});
+						var temp_amazon_time = (new Date()).getTime();
+						apstag.fetchBids({
+							slots: current_process.amzn_slots_to_load
+						}, function(bids) {
+							/*apstag.debug(isDev && document.cookie.indexOf("pbjsdebug=1") !== -1 ? 'enable' : 'disable');*/
+							temp_amazon_time = (new Date()).getTime() - temp_amazon_time;
+							for(bid in bids){
+								var amzn_slot_to_use = bids[bid].slotID.split("|");
+								var amzn_slot_to_use_final = amzn_slot_to_use[3];
+								if(pbjs.all_bids.hasOwnProperty(amzn_slot_to_use_final) && bids[bid].hasOwnProperty("targeting") && bids[bid].targeting.amznsz != "0x0"){
+									//pbjs.postmessageextender[amzn_slot_to_use_final] = bids[bid].hasOwnProperty("mediaType") && bids[bid].mediaType == "video" ? {amzn_customid: bids[bid].hasOwnProperty("targeting") ? bids[bid].targeting.amzniid : bids[bid].amzniid, amzn_size: '1x2', amzn_price: bids[bid].hasOwnProperty("targeting") ? bids[bid].targeting.amznbid : bids[bid].amznbid, amzn_type: bids[bid].mediaType} : {amzn_customid: bids[bid].hasOwnProperty("targeting") ? bids[bid].targeting.amzniid : bids[bid].amzniid, amzn_size: bids[bid].hasOwnProperty("targeting") ? bids[bid].targeting.amznsz : bids[bid].amznsz, amzn_price: bids[bid].hasOwnProperty("targeting") ? bids[bid].targeting.amznbid : bids[bid].amznbid};
+									pbjs.postmessageextender[amzn_slot_to_use_final] = Object.assign((bids[bid].targeting.hasOwnProperty("amzniid") ? {amzn_customid: bids[bid].targeting.amzniid, amzn_size: bids[bid].targeting.hasOwnProperty("amznsz") ? bids[bid].targeting.amznsz : '1x2', amzn_price: bids[bid].targeting.amznbid, amzn_type: bids[bid].hasOwnProperty("mediaType") && bids[bid].mediaType != 'd' ? bids[bid].mediaType : undefined} : {}),(bids[bid].targeting.hasOwnProperty("amzniid_sp") ? {amzn_deal_customid: bids[bid].targeting.amzniid_sp, amzn_deal_size: bids[bid].targeting.hasOwnProperty("amznsz_sp") ? bids[bid].targeting.amznsz_sp : '1x2', amzn_deal_price: bids[bid].targeting.amznbid_sp, amzn_deal_id: bids[bid].targeting.amzndeal_sp || '', amzn_deal_type: bids[bid].mediaType_sp || undefined} : {}));
+									pbjs.all_bids[amzn_slot_to_use_final].responseTime.amazon = temp_amazon_time;
+								}
+								//pbdbg({message:["pbjs::amzn",current_process.slots.toString(),"extender",pbjs.postmessageextender]});
+							}
+							current_process.amzn_ready = 1;
+							/*neu*/pbjs.finalDoings();
+						});
+						window.setTimeout(function(){
+							current_process.amzn_ready = 1;
+							pbjs.finalDoings();
+						},pbjs.globalConfig.timeout.initial.bidder/*+(isDev ? -2000 : 0)*/);
+					} else {
+						current_process.amzn_ready = 1;
+						/*neu*/pbjs.finalDoings();
+					}
+				} else if(adtypes != null) {
+					pbdbg({message:["pbjs",showSection+adtypes,"wait_for_running_processes"]});
+				}
+			};
+			pbjs.extendTGP = function(slots,refresh){
+				for(var slot in slots){
+					var tagid = slots[slot].code.split("|")[0];
+					for(var bidder in slots[slot].bids){
+						if(slots[slot].bids[bidder].bidder == "appnexus"){
+							var temp_appnexustargeting = {};
+							for(var temp_targeting in pbTargeting){
+								temp_appnexustargeting[temp_targeting] = typeof pbTargeting[temp_targeting] == "string" && pbTargeting[temp_targeting].indexOf(",") === 0 ? pbTargeting[temp_targeting].slice(1,-1).split(",") : pbTargeting[temp_targeting];
+							}
+							slots[slot].bids[bidder].params.keywords = Object.assign({tagid:tagid},temp_appnexustargeting);
+						} else if(slots[slot].bids[bidder].bidder == "yieldlab"){
+							if(pbjs.cdl !== ''){
+								pbTargeting.cdl = pbjs.cdl;
+							}
+							slots[slot].bids[bidder].params.targeting = {...pbTargeting,...(pbjs.globalConfig.params.testTargeting || {})};
+						}
+					}
+					if(slots[slot].hasOwnProperty('pubstack') && slots[slot].pubstack.hasOwnProperty('adUnitName') && slots[slot].pubstack.hasOwnProperty('adUnitPath') && slots[slot].pubstack.adUnitName.indexOf('_x') == -1 && slots[slot].pubstack.adUnitPath.indexOf('_x') == -1 && typeof refresh == 'object' && refresh.hasOwnProperty(tagid) && refresh[tagid] == true){
+						slots[slot].pubstack.adUnitName = slots[slot].pubstack.adUnitName.replace(tagid,tagid+'_x');
+						slots[slot].pubstack.adUnitPath = slots[slot].pubstack.adUnitPath.replace(tagid,tagid+'_x');
+					}
+				}
+				return slots;
+			}
+			/* debug code */
+			pbjs.getDebugCode = function(partner,adsize,price,ad,deal,tagid,advertiser){
+				var code = '';
+				if(document.cookie.indexOf("pbjsdebug=1") !== -1){
+					code = '<div style="background:orange;opacity:0.8;position:absolute;display:inline-block;font-size:11px;line-height:1.1;font-family:webdesans,\'Source Sans Pro\',\'Segeo UI\',\'Trebuchet MS\';padding:1px 3px;left:0px;top:0px;border-bottom:1px dotted #333;border-right:1px dotted #333;z-index:1000;" id="prebiddebug"><b><u>prebid.js::debug<span style="float:right;cursor:pointer;" onclick="this.parentElement.parentElement.parentElement.style.display=\'none\';">[x]</span></u></b><br /><b>partner</b>: '+partner+'<br /><b>preis</b>: '+(Math.round(price)/100).toString().replace(".",",")+'€<br /><b>advertiser</b>: '+(advertiser || '-')+'<br /><b>ad</b>: '+(ad || '-')+'<br /><b>deal</b>: '+(deal || '-')+'<br /><b>size</b>: '+adsize+'<br /><b>tagid</b>: '+tagid+'</div>';
+				}
+				return code;
+			}
+			/* response prebid */
+			pbjs.handleData = function(prebid) {
+				var temp_dummyslot;
+				var this_item = 0;
+				for(var dummyslot in prebid){
+					temp_dummyslot = dummyslot.split("|")[0].split(",");
+					for(var ads in prebid[dummyslot].bids){
+						for (var uimslot in temp_dummyslot){
+							if(prebid[dummyslot].bids[ads].statusMessage == "Bid available"){
+								//pbdbg({message:["pbjs",temp_dummyslot[uimslot],"all_bids",prebid[dummyslot].bids[ads]]});
+								var uimslot_final = temp_dummyslot[uimslot];
+								var temp_debug = pbjs.getDebugCode(prebid[dummyslot].bids[ads].bidderCode,prebid[dummyslot].bids[ads].mediaType == "native" ? "native" : (prebid[dummyslot].bids[ads].mediaType == "video" ? "video - " : "") + prebid[dummyslot].bids[ads].width+'x'+prebid[dummyslot].bids[ads].height,prebid[dummyslot].bids[ads].cpm * 100,prebid[dummyslot].bids[ads].creativeId,prebid[dummyslot].bids[ads].dealId,uimslot_final,prebid[dummyslot].bids[ads].hasOwnProperty("meta") && prebid[dummyslot].bids[ads].meta.hasOwnProperty("advertiserDomains") ? prebid[dummyslot].bids[ads].meta.advertiserDomains.toString() : 0);
+								pbjs.all_bids[uimslot_final].ads.push({
+									"width": prebid[dummyslot].bids[ads].adUnitCode.indexOf("sitebar") !== -1 ? 220 : prebid[dummyslot].bids[ads].width,
+									"height": prebid[dummyslot].bids[ads].adUnitCode.indexOf("sitebar") !== -1 ? 600 : prebid[dummyslot].bids[ads].height,
+									"partner": prebid[dummyslot].bids[ads].bidderCode + (prebid[dummyslot].bids[ads].bidderCode == "yieldlab" && typeof prebid[dummyslot].bids[ads].dealId != "undefined" && prebid[dummyslot].bids[ads].dealId.toString().indexOf("priox42x") !== -1 ? '-prio' : ''),
+									"deal": prebid[dummyslot].bids[ads].dealId || 0,
+									"code": prebid[dummyslot].bids[ads].mediaType == "native" ? prebid[dummyslot].bids[ads].native : (prebid[dummyslot].bids[ads].mediaType == "video" ? (prebid[dummyslot].bids[ads].hasOwnProperty("videoCacheKey") && !prebid[dummyslot].bids[ads].hasOwnProperty("renderer") ? {} : (prebid[dummyslot].bids[ads].bidderCode == "appnexus" ? prebid[dummyslot].bids[ads].adResponse : {renderer: prebid[dummyslot].bids[ads].renderer.url, vasturl: prebid[dummyslot].bids[ads].vastUrl})) : (prebid[dummyslot].bids[ads].bidderCode == "criteo" && prebid[dummyslot].bids[ads].width == "2" && prebid[dummyslot].bids[ads].height == "2" ? criteo_prebid_native_slots[prebid[dummyslot].bids[ads].creativeId].payload : (prebid[dummyslot].bids[ads].bidderCode == "yieldlab" && prebid[dummyslot].bids[ads].hasOwnProperty("nativeUrl") ? prebid[dummyslot].bids[ads].nativeUrl : prebid[dummyslot].bids[ads].ad + temp_debug))),
+									"price": pbjs.globalConfig.params.hasOwnProperty("int") ? Math.round(prebid[dummyslot].bids[ads].adserverTargeting.hb_pb * 100) : (Math.round(prebid[dummyslot].bids[ads].bidderCode == "yieldlab" && typeof prebid[dummyslot].bids[ads].dealId != "undefined" && prebid[dummyslot].bids[ads].dealId.toString().indexOf("priox42x") !== -1 && typeof prebid[dummyslot].bids[ads].dealId.toString().split("x42x")[2] != "undefined" ? prebid[dummyslot].bids[ads].dealId.toString().split("x42x")[2] : (prebid[dummyslot].bids[ads].cpm * 100))),
+									"time": prebid[dummyslot].bids[ads].timeToRespond,
+									"slotname": prebid[dummyslot].bids[ads].adUnitCode,
+									"adtype": ((prebid[dummyslot].bids[ads].bidderCode == "criteo" && prebid[dummyslot].bids[ads].width == "2" && prebid[dummyslot].bids[ads].height == "2") || (prebid[dummyslot].bids[ads].bidderCode == "yieldlab" && prebid[dummyslot].bids[ads].hasOwnProperty("nativeUrl"))) ? "native" : prebid[dummyslot].bids[ads].mediaType,
+									"adid": prebid[dummyslot].bids[ads].hasOwnProperty("creativeId") ? prebid[dummyslot].bids[ads].creativeId.toString().replace(/[^a-zA-Z0-9]/g,"-") : 0,
+									"renderid": prebid[dummyslot].bids[ads].adId || 0,
+									"cachekey": prebid[dummyslot].bids[ads].videoCacheKey || 0,
+									"renderer": prebid[dummyslot].bids[ads].renderer || 0,
+									"advertiser": prebid[dummyslot].bids[ads].hasOwnProperty("meta") && prebid[dummyslot].bids[ads].meta.hasOwnProperty("advertiserDomains") ? prebid[dummyslot].bids[ads].meta.advertiserDomains.toString() : '',
+									"debug": {"debug":temp_debug}
+								});
+								this_item = pbjs.all_bids[uimslot_final].ads.length - 1;
+								//pbdbg({message:["pbjs",pbjs.currentCall,"all_bids",prebid[dummyslot].bids[ads]]});
+								if(pbjs.all_bids[uimslot_final].winner == null || pbjs.all_bids[uimslot_final].ads[pbjs.all_bids[uimslot_final].winner].price < /*Math.round(prebid[dummyslot].bids[ads].cpm * 100*/pbjs.all_bids[uimslot_final].ads[this_item].price)/*)*/{
+									pbjs.all_bids[uimslot_final].winner = this_item;
+									pbjs.pubStackwonBids[uimslot_final] = prebid[dummyslot].bids[ads].adId;
+								}
+							}
+						}
+						pbjs.all_bids[uimslot_final].responseTime[prebid[dummyslot].bids[ads].bidderCode]=prebid[dummyslot].bids[ads].timeToRespond;
+						//pbjs.partner_response[prebid[dummyslot].bids[ads].bidderCode]=prebid[dummyslot].bids[ads].timeToRespond;
+					}
+				}
+				pbdbg({message:["pbjs",showSection+Object.keys(pbjs.all_bids).toString(),"bids",pbjs.all_bids]});
+				//pbjs.handleQueue.find(obj => obj.status == 1).prebid_ready = 1;
+				pbjs.handleQueue.filter(function(obj){return obj.status == 1})[0].prebid_ready = 1;
+				pbjs.finalDoings();
+			};
+			/* debug */
+			pbjs.debug = function(bids,amzn) {
+				setTimeout(function(){
+					if(document.cookie.indexOf("pbjsdebug=1") !== -1){
+						/* amzn start */
+						if(localStorage.prebid_amznprice) {
+							var amznpreis = JSON.parse(localStorage.prebid_amznprice);
+						} else {
+							var mappingpreis = document.createElement("script");
+							mappingpreis.src = "https://"+location.host+"/uim/bidding/amznpreis.js";
+							mappingpreis.addEventListener("load",function(e){
+								localStorage.setItem("prebid_amznprice",JSON.stringify(amzn_price));
+							});
+							document.getElementsByTagName("head")[0].appendChild(mappingpreis);
+						}
+						/* amzn end */
+						var debugObject = {};
+						for(var bid in bids){
+							var counter = 0;
+							for(ads in bids[bid].ads){
+								counter++;
+								debugObject[bid+" / Gebot "+counter]={"Partner":bids[bid].ads[ads].partner,"Preis":((bids[bid].ads[ads].price / 100).toString().replace(".",",") + "€"),"AdSize":(bids[bid].ads[ads].width + 'x' + bids[bid].ads[ads].height),"Bannertyp":bids[bid].ads[ads].adtype,"BannerID / DealID":bids[bid].ads[ads].adid.toString()+" / "+bids[bid].ads[ads].deal.toString(),"Antwortzeit / BidderTimeout|KonstruktTimeout":bids[bid].ads[ads].time + " / " + (bids[bid].initial == 1 ? (pbjs.globalConfig.timeout.initial.bidder+"|"+pbjs.globalConfig.timeout.initial.total) : (pbjs.globalConfig.timeout.slots[(Object.keys(bids).length-1)].bidder+"|"+pbjs.globalConfig.timeout.slots[(Object.keys(bids).length-1)].total)),"Auktionsgewinner / AdServergewinner":(bids[bid].winner == ads ? "x / " + (pbjs.wonBids.hasOwnProperty(bid) && pbjs.wonBids[bid] != "amazon" ? "ja" : "nein") : " ")};
+							}
+							if(typeof amzn !== "undefined" && typeof amzn[bid] != "undefined"){
+								counter++;
+								debugObject[bid+" / Gebot "+counter] = {"Partner":"amazon","Preis":(typeof amznpreis != "undefined" && typeof amznpreis[amzn[bid].amzn_price] != "undefined" ? (amznpreis[amzn[bid].amzn_price]*pbjs.er_usd_eur).toFixed(2)+"€" : amzn[bid].amzn_price),"AdSize":amzn[bid].amzn_size,"Bannertyp":(amzn[bid].hasOwnProperty("amzn_type") ? amzn[bid].amzn_type : "banner"),"BannerID / DealID":amzn[bid].amzn_customid,"Antwortzeit / BidderTimeout|KonstruktTimeout":bids[bid].responseTime.amazon+" / " + (bids[bid].initial == 1 ? (pbjs.globalConfig.timeout.initial.bidder+"|"+pbjs.globalConfig.timeout.initial.total) : (pbjs.globalConfig.timeout.slots[(Object.keys(bids).length-1)].bidder+"|"+pbjs.globalConfig.timeout.slots[(Object.keys(bids).length-1)].total)),"Auktionsgewinner / AdServergewinner":"? / " + (pbjs.wonBids.hasOwnProperty(bid) && pbjs.wonBids[bid] == "amazon" ? "ja" : "nein")};
+							}
+						}
+						if(typeof Object.keys == "function" && Object.keys(debugObject).length > 0){
+							console.table(debugObject);
+						}
+					}
+				}, 3000);
+			}
+			/* tracking */
+			pbjs.track = function(bids,amzn) {
+				setTimeout(function(){
+					var temp_partnertime = "", temp_allads = "", temp_alladsstate = "", temp_alladsprice = "", temp_dauer = "", initial = 0;
+					for(var temp_tagid in bids){
+						for(var temp_ad in bids[temp_tagid].ads){
+							temp_allads += ',' + bids[temp_tagid].ads[temp_ad].partner + '_' + temp_tagid.replace(/\_/g,"") + '_' + bids[temp_tagid].ads[temp_ad].width + 'x' + bids[temp_tagid].ads[temp_ad].height;
+							temp_alladsstate += ',' + (bids[temp_tagid].winner == temp_ad && pbjs.wonBids.hasOwnProperty(temp_tagid) && pbjs.wonBids[temp_tagid] != "amazon" ? 1 : 0);
+							temp_alladsprice += ',' + bids[temp_tagid].ads[temp_ad].price;
+						}
+						temp_dauer = bids[temp_tagid].endTime - bids[temp_tagid].startTime;
+						for(var partnerTime in bids[temp_tagid].responseTime){
+							temp_partnertime += ',' + partnerTime + ',' + bids[temp_tagid].responseTime[partnerTime];
+						}
+						if(bids[temp_tagid].initial == 1){
+							initial = 1;
+						}
+					}
+					for(var amzn_temp_tagid in amzn){
+						temp_allads += ',amazon_' + amzn_temp_tagid.replace(/\_/g,"") + '_' + amzn[amzn_temp_tagid].amzn_size;
+						temp_alladsstate += ',' + (pbjs.wonBids.hasOwnProperty(amzn_temp_tagid) && pbjs.wonBids[amzn_temp_tagid] == "amazon" ? 1 : 0);
+						temp_alladsprice += ',' + amzn[amzn_temp_tagid].amzn_price;
+					}
+					//var pa = '', targetingSource = null;
+					/*for (var p in targeting) {
+						if (targeting.hasOwnProperty(p) && targeting[p]) {
+							pa += '&' + p + '=' + targeting[p];
+						}
+					}*/
+					var tcValue = yl_id !== "" && /^(13|12|11)$/.test(yl_id.split("_")[1]) ? `&tc=${yl_id.split("_")[1]}`  : "";
+					(new Image()).src='//t.uimserv.net/drp_p/?evtid=868&mediaID=944&site='+pbjs.globalConfig.params.portal+'&region=&haID='+pbjs.globalConfig.params.external_uid+'&item_id=['+temp_allads.substr(1)+']&item_ct=['+temp_alladsstate.substr(1)+']&item_pr=['+temp_alladsprice.substr(1)+']&tid='+pbjs.cdl+'&sc='+pbjs.globalConfig.params.category+'/'+pbjs.globalConfig.params.section+'&att1='+(initial == 1 ? pbjs.globalConfig.timeout.initial.bidder : pbjs.globalConfig.timeout.slots[(Object.keys(bids).length-1)].bidder)+'&att2='+temp_dauer+'&att3=['+temp_partnertime.substr(1)+']'+(yl_id !== "" ? '&att4='+yl_id : '')+'&d='+(Math.floor(Math.random() * (99999999 - 1000000)) + 1000000)/* + pa + '&ps=' + targetingSource*/+tcValue+(getCookieValue("tp_id")!="" ? "&extevtid="+getCookieValue("tp_id") : "")+(getCookieValue("idcc")!="" ? '&lpos='+getCookieValue("idcc") : '');
+				}, 3000);
+			};
+			/* extend prf params */
+			pbjs.finalDoings = function() {
+				var openQueue = pbjs.handleQueue.filter(function(el){if(el.status == 1){return el;}});
+				if(openQueue.length > 0 && openQueue[0].prebid_ready == 1 && openQueue[0].amzn_ready == 1){
+					var json_message = {};
+					/* ad available */
+					for(var ad in pbjs.all_bids){
+						sendAllBids = ad.indexOf("inline_") !== -1 && !pbjs.globalConfig.params.hasOwnProperty("int");
+						if(pbjs.all_bids[ad].winner != null){
+							var addata = pbjs.all_bids[ad].ads[pbjs.all_bids[ad].winner];
+							json_message[ad]=!sendAllBids ? {param:{pb_size:addata.width+'x'+addata.height,pb_partner:addata.partner,pb_deal:addata.deal,pb_price:(isDev && !pbjs.globalConfig.params.hasOwnProperty("int") ? addata.price*1000 : (pbjs.globalConfig.params.hasOwnProperty("int") && (addata.price > 1000 || isDev) ? 1000 : addata.price)),pb_type:addata.adtype,pb_adid:addata.adid,pb_advertiser:addata.advertiser,logicv:pbjs.logicv}} : {param:{logicv:pbjs.logicv}};
+							if(addata.adtype == "native" || (addata.adtype == "video" && addata.renderer)){
+								json_message[ad].type = {prebid:{json:(ad.indexOf("inline_") !== -1 && !pbjs.globalConfig.params.hasOwnProperty("int") ? {} : Object.assign(addata.code,addata.debug))}};
+								if(addata.adtype == "native" && !sendAllBids){
+									if(ad.indexOf("inline_") !== -1){
+										json_message[ad].param.pb_renderid = addata.renderid;
+										/*for(var subad in pbjs.all_bids[ad].ads){
+											var subaddata = pbjs.all_bids[ad].ads[subad];
+											json_message[ad].param['pb_size_'+subaddata.partner]=subaddata.width+'x'+subaddata.height;
+											json_message[ad].param['pb_deal_'+subaddata.partner]=subaddata.deal;
+											json_message[ad].param['pb_price_'+subaddata.partner]=subaddata.price;
+											json_message[ad].param['pb_type_'+subaddata.partner]=subaddata.adtype;
+											json_message[ad].param['pb_renderid_'+subaddata.partner]=subaddata.renderid;
+											json_message[ad].param['pb_advertiser_'+subaddata.partner]=subaddata.advertiser;
+											if(!pbjs.globalConfig.params.hasOwnProperty("int")){
+												json_message[ad].type.prebid.json[subaddata.renderid] = Object.assign(subaddata.code,subaddata.debug);
+											}
+										}*/
+									} else {
+										json_message[ad].type.prebid.adId = addata.renderid;
+									}
+								}
+								if(pbjs.globalConfig.params.hasOwnProperty("int")){
+									json_message[ad].param.pb_renderid = addata.renderid;
+									json_message[ad].param.pbjsdebug = +(document.cookie.indexOf("pbjsdebug=1") !== -1);
+								}
+							} else if(addata.adtype == "video" && !!addata.cachekey) {
+								json_message[ad].type = {prebid:{}};
+								json_message[ad].param.pb_videocachekey = addata.cachekey;
+							} else {
+								json_message[ad].type = {prebid:{html:addata.code}};
+							}
+							if(sendAllBids){
+								/*if(ad == "box_1"){
+									json_message[ad].type.prebid.html = {'default':addata.code};
+								}*/
+								for(var subad in pbjs.all_bids[ad].ads){
+									var subaddata = pbjs.all_bids[ad].ads[subad];
+									//legacy
+									/*json_message[ad].param['pb_size_'+subaddata.partner]=subaddata.width+'x'+subaddata.height;
+									json_message[ad].param['pb_deal_'+subaddata.partner]=subaddata.deal;
+									json_message[ad].param['pb_price_'+subaddata.partner]=subaddata.price;
+									json_message[ad].param['pb_type_'+subaddata.partner]=subaddata.adtype;*/
+									json_message[ad].param['pb_renderid_'+subaddata.partner]=subaddata.renderid;
+									json_message[ad].param['pb_advertiser_'+subaddata.partner]=subaddata.advertiser;
+									//new
+									json_message[ad].param['_hb_size_'+subaddata.partner]=subaddata.width+'x'+subaddata.height;
+									json_message[ad].param['_hb_deal_'+subaddata.partner]=subaddata.deal;
+									json_message[ad].param['_hb_pb_'+subaddata.partner]=(subaddata.price/100).toFixed(2).toString();
+									json_message[ad].param['_hb_format_'+subaddata.partner]=subaddata.adtype;
+									json_message[ad].param['_hb_adid_'+subaddata.partner]=subaddata.adid;
+									if(ad.indexOf("inline_") !== -1){
+										json_message[ad].type.prebid.json[subaddata.renderid] = Object.assign(subaddata.code,subaddata.debug);
+									} else {
+										json_message[ad].type.prebid.html[subaddata.renderid] = subaddata.code;
+									}
+								}
+							}
+						} else {
+							json_message[ad] = {};
+						}
+						// amzn start
+						if(typeof pbjs.postmessageextender !== "undefined" && pbjs.postmessageextender.hasOwnProperty(ad) == true){
+							json_message[ad].param = json_message[ad].hasOwnProperty("param") ? Object.assign(pbjs.postmessageextender[ad],json_message[ad].param) : pbjs.postmessageextender[ad];
+							json_message[ad].type = json_message[ad].hasOwnProperty("type") ? Object.assign({amazon:{}},json_message[ad].type) : {amazon:{}};
+						}
+						// amzn end
+						pbjs.all_bids[ad].endTime = (new Date()).getTime();
+						/* aliases */
+						/*if(pbjs.globalConfig.hasOwnProperty('aliasSlots') && pbjs.globalConfig.aliasSlots.hasOwnProperty(ad)){
+							for(var alias in pbjs.globalConfig.aliasSlots[ad]){
+								json_message[pbjs.globalConfig.aliasSlots[ad][alias]] = json_message[ad];
+							}
+						}*/
+					}
+					/*if(pbjs.globalConfig.params.hasOwnProperty("forcetimeout")){
+						pbdbg({message:["pbjs","generic","postmessage_waitfor_timeout"]});
+						setTimeout(function(){
+							parent.postMessage(JSON.stringify({"type":"CALL","name":'setAuctionResult',"data":json_message}), '*');
+							pbdbg({message:["pbjs","generic","postmessage_send"]});
+						},pbjs.globalConfig.timeout.initial.total-2000);
+					} else {*/
+					var seen = [];
+					parent.postMessage(JSON.stringify({"type":"CALL","name":'setAuctionResult',"data":json_message},function(key, val){if(val != null && typeof val == "object"){if(seen.indexOf(val) >= 0){return;}seen.push(val);}return val;}), '*');
+					//}
+					/* temp fix */if(pbjs.firstMessage.message === null){pbjs.firstMessage.message = json_message;window.setTimeout(function(){pbjs.firstMessage.nextAllowed = true;pbdbg({message:["pbjs",showSection+"generic","initial_can_load_new_ads"]});},10000);}
+					var seendbg = [];
+					pbdbg({message:["pbjs",showSection+"generic","postmessage",JSON.stringify(json_message,function(key, val){if(val != null && typeof val == "object"){if(seendbg.indexOf(val) >= 0){return;}seendbg.push(val);}return val;})]});
+					pbjs.track(pbjs.all_bids,pbjs.postmessageextender);
+					pbjs.debug(pbjs.all_bids,pbjs.postmessageextender);
+					pbjs.all_bids = {};
+					pbjs.postmessageextender = {};
+					//ENDDOINGS
+					//pbjs.handleQueue.find(obj => obj.status == 1).status = 2;
+					pbjs.handleQueue.filter(function(obj){return obj.status == 1})[0].status = 2;
+					pbjs.createCall(null);
+				}
+			};
+		</script><script src="tcf-api.js" onload="pbjs.runTCFqueue()"></script><script async="" src="logic_pbjs_data/prebid-int_48.js"></script><script src="container_data/amzn_renderad_dev_data/connector.js"></script><script src="a_data/apstag.js"></script><script async="" src="logic_pbjs_data/80ef5de8-0cf4-4c0c-9048-b227ad8a8701"></script><meta name="pbstck_context:pbstck_ab_test" content="prebid_48">
+	<script src="logic_pbjs_data/3206" type="text/javascript" async="async"></script><script src="logic_pbjs_data/id5-api.js"></script><script type="text/javascript">(function() { var load = function() {!function(e){"use strict";function t(e,t,i,s){return new(i||(i=Promise))((function(n,o){function r(e){try{d(s.next(e))}catch(e){o(e)}}function a(e){try{d(s.throw(e))}catch(e){o(e)}}function d(e){var t;e.done?n(e.value):(t=e.value,t instanceof i?t:new i((function(e){e(t)}))).then(r,a)}d((s=s.apply(e,t||[])).next())}))}var i,s;"function"==typeof SuppressedError&&SuppressedError;const n=/pbstck:debug/.test(window.location.href),o=!!(null===(i=window.localStorage)||void 0===i?void 0:i.getItem)&&null!==window.localStorage.getItem("pbstck"),r=`[pbstck-${null!==(s="53e3df7")?s:"unknown"}]`;function a(){return n||o}function d(...e){a()&&console.log(r,...e)}function c(...e){a()&&console.warn(r,...e)}function u(...e){a()&&console.error(r,...e)}var l,b;!function(e){e[e.LOADED=0]="LOADED",e[e.FAILED=1]="FAILED",e[e.NOT_READY=2]="NOT_READY"}(l||(l={})),function(e){e.RUNNING="running",e.NO_BID="noBid",e.BID="bidResponse",e.TIMEOUT="bidTimeout"}(b||(b={}));const p=e=>e.state===b.BID,h=e=>p(e)?e.bidResponseId:e.bidId;var v,m;!function(e){e[e.ON_DONE=0]="ON_DONE",e[e.ON_SMART_MERGED=1]="ON_SMART_MERGED",e[e.NEVER=2]="NEVER"}(v||(v={})),function(e){e[e.PBJS=0]="PBJS",e[e.SMART_RTB=1]="SMART_RTB",e[e.AMAZON=2]="AMAZON",e[e.GAM=3]="GAM"}(m||(m={}));class f extends Error{constructor(e){super(e)}}function g(e,t){if(!Array.isArray(e))throw new f(null!=t?t:"Expected value to be an array, but received "+typeof e)}function y(e){return"number"==typeof e&&!isNaN(e)}function I(e){return"string"==typeof e}function k(e,t){if(!y(e))throw new f(null!=t?t:"Expected value to be a number, but received "+typeof e)}function w(e,t){if(null!=e&&"string"!=typeof e)throw new f("Expected value to be a string, undefined or null, but received "+typeof e)}function R(e,t){if(null!=e&&!function(e){return"boolean"==typeof e}(e))throw new f("Expected value to be a boolean, but received "+typeof e)}function C(e,t){if("string"!=typeof e)throw new f(null!=t?t:"Expected value to be a string, but received "+typeof e)}function A(e,t){if(null==e)throw new f(null!=t?t:`Expected value to be defined, but received ${e}`)}function T(e,t){if(!Array.isArray(e)||0===e.filter((e=>void 0!==e)).length)throw new f(null!=t?t:"Expected array to be not empty")}const E=e=>"object"==typeof e&&null!==e&&!Array.isArray(e);function S(e,t){if(!E(e))throw new f(null!=t?t:`Expected value to be record, but received '${typeof e}'`)}const U=(e,t)=>E(e)&&t in e;class j{constructor(){this.storeAuctions=new Map,this.storeCoreBidResponses=new Map,this.mappingAdUnitNameAuctions=new Map,this.mappingAdUnitCodeLastAuctions=new Map}setAuction(e){var t;this.storeAuctions.set(e.auctionId,e);const i=null!==(t=this.mappingAdUnitNameAuctions.get(e.adUnit.name))&&void 0!==t?t:[];i.find((t=>t===e.auctionId))||(i.push(e.auctionId),this.mappingAdUnitNameAuctions.set(e.adUnit.name,i)),this.mappingAdUnitCodeLastAuctions.set(e.adUnit.code,e.auctionId)}getAuction(e){const t=this.storeAuctions.get(e);return A(t,`auction not found, @auctionId=${e}`),t}findBidsByAuctionId(e){var t;return(null===(t=this.storeAuctions.get(e))||void 0===t?void 0:t.bidRequests)||[]}findLastAuctionId(e){return this.mappingAdUnitCodeLastAuctions.get(e.code)}findAuctionByAdUnitPath(e){return Array.from(this.storeAuctions.values()).find((t=>{var i;return null===(i=t.adUnit.path)||void 0===i?void 0:i.endsWith(e)}))}}class B{constructor(e){this.subscriptions=[],this.children=[],this.processingChain=e?[...e]:[]}subscribe(e,t){this.subscriptions.push({onEvent:e,onError:t})}unsubscribe(e,t){this.subscriptions=this.subscriptions.filter((i=>!(i.onEvent===e&&i.onError===t)))}pipe(...e){const t=new B([...this.processingChain,...e]);return this.children.push(t),t}next(e){this.subscriptions.forEach((t=>{try{const i=this.processingChain.reduce(((e,t)=>{if(void 0!==e)return t(e)}),e);void 0!==i&&t.onEvent(i)}catch(e){t.onError&&t.onError(e)}})),this.children.forEach((t=>t.next(e)))}}const N=e=>{return[(t=([t])=>e.test(t),e=>{if(t(e))return e}),([,[e,...t]])=>[e,t]];var t},O=[],V=new B;function $(e,t){let i=0;O.push((s=>{i>=t||(i+=1,e(s))}))}function q(e){O.forEach((t=>t({error:e})))}function D(e){var t;q({context:null!==(t=e.context)&&void 0!==t?t:{},message:e.message})}const x=["39216077","22181265","6943","22815767462","1030155","49313688","127208727","21794835430","8456","27416722","1021524","2507246","17085479"],F=e=>{var t,i,s;if(!(null===(t=e.pubstack)||void 0===t?void 0:t.adUnitName)&&e.ortb2Imp)for(const t of x)if(e.ortb2Imp.ext.data.pbadslot.startsWith(`/${t}/`)){const t=e.ortb2Imp.ext.data.pbadslot.replace(/\/$/,"").split("/").pop();return t||e.code}return null!==(s=null===(i=e.pubstack)||void 0===i?void 0:i.adUnitName)&&void 0!==s?s:e.code},z=e=>{var t;return(null===(t=e.pubstack)||void 0===t?void 0:t.adUnitPath)?L(e.pubstack.adUnitPath):e.ortb2Imp?L(e.ortb2Imp.ext.data.pbadslot):void 0},M=e=>{const t=[];return e.forEach((e=>{Y(e).bids.forEach((e=>{t.some((t=>t.bidder===e.bidder))||t.push(e)}))})),t},P=e=>{const t={};return e.forEach((e=>{const i=Y(e);void 0!==i.mediaTypes.native&&(t.native=i.mediaTypes.native),void 0!==i.mediaTypes.video&&i.mediaTypes.video.playerSize&&(t.video?t.video.playerSize=[...t.video.playerSize,...i.mediaTypes.video.playerSize]:t.video=i.mediaTypes.video),void 0!==i.mediaTypes.banner&&(t.banner?(t.banner.sizes=[...t.banner.sizes,...i.mediaTypes.banner.sizes],i.mediaTypes.banner.sizeConfig&&(t.banner.sizeConfig=i.mediaTypes.banner.sizeConfig)):t.banner=i.mediaTypes.banner)})),t},_=e=>{var t,i,s;const n=e=>"string"==typeof e?e:Array.isArray(e)&&2===e.length?`${e[0]}x${e[1]}`:"unknown",o=new Set;return(e=>{var t,i;return(void 0===(null===(t=e.mediaTypes.banner)||void 0===t?void 0:t.sizes)||0===(null===(i=e.mediaTypes.banner)||void 0===i?void 0:i.sizes.length))&&void 0===e.mediaTypes.native&&void 0===e.mediaTypes.video})(e)?[]:((null===(t=e.mediaTypes.banner)||void 0===t?void 0:t.sizes)&&(Array.isArray(e.mediaTypes.banner.sizes[0])?e.mediaTypes.banner.sizes.forEach((e=>o.add(n(e)))):o.add(n(e.mediaTypes.banner.sizes))),(null===(i=e.mediaTypes.video)||void 0===i?void 0:i.playerSize)&&(null===(s=e.mediaTypes.video)||void 0===s||s.playerSize.forEach((e=>o.add((e=>{const t=n(e);return"unknown"===t?"video":`video-${t}`})(e))))),e.mediaTypes.native&&o.add("native"),Array.from(o))},L=e=>e.startsWith("/")?e:`/${e}`,W=e=>{var t,i;const s=/^(adUnitPath)/;return(null!==(i=null===(t=e.pubstack)||void 0===t?void 0:t.tags)&&void 0!==i?i:[]).filter((e=>"string"==typeof e)).filter((e=>e.length>0&&e.length<256||s.test(e)))},G=e=>{const t=(e=>e.placementId||e.zoneId||e.siteId||void 0)(e);if(t)return`slot:${t}`},J=e=>{const t={hasUserId:"notAvailable",userIdProviderList:[]};if(0===e.length)return t;let i=!0;const s=e[0].bids[0];return e.forEach((e=>{e.bids.forEach((e=>{const n=Object.entries(e.userId||{}).flatMap((([e,t])=>{if(Array.isArray(t)){const i=t.filter((e=>Object.prototype.hasOwnProperty.call(e,"source"))).map((t=>`${e}:${t.source}`));return i.length?i:e}return e}));if(t.userIdProviderList=t.userIdProviderList.concat(n),t.userIdProviderList=t.userIdProviderList.concat(Object.keys(e.crumbs||{})),i=i&&typeof s.crumbs==typeof e.crumbs,s.crumbs&&e.crumbs){const t=Object.keys(s.crumbs),n=Object.keys(e.crumbs);i=i&&t.length===n.length&&t.every((e=>n.includes(e)))}if(i=i&&typeof s.userId==typeof e.userId,s.userId&&e.userId){const t=Object.keys(s.userId),n=Object.keys(e.userId);i=i&&t.length===n.length&&t.every((e=>n.includes(e)))}}))})),t.userIdProviderList.length>0&&i?t.hasUserId="available":t.userIdProviderList.length>0&&!i&&(t.hasUserId="notConsistent"),t.userIdProviderList=Array.from(new Set(t.userIdProviderList)),t},H=e=>{let t=e.map((e=>e.gdprConsent)).filter((e=>void 0!==e));return e.length!==t.length&&(t=[]),t},Q=e=>{const t={userConsentState:"notAvailable",userConsentVersion:"notAvailable"};try{if(0===e.length)return t;const i=e.every(((e,t,i)=>e.apiVersion===i[0].apiVersion)),s=e.every(((e,t,i)=>e.consentString===i[0].consentString));if(!i||!s)throw new Error("API version and Consent string must be unique within a bid request array");return(e=>{const t={userConsentState:"notAvailable",userConsentVersion:"notAvailable"};if(void 0===e)return t;let i=!1,s=!1;if(e.apiVersion&&1!==e.apiVersion){if(2!==e.apiVersion)throw e.apiVersion>2?new Error(`API version is not yet supported: ${e.apiVersion}`):new Error(`An issue occured while identifying TCF version: ${e.apiVersion}`);if(t.userConsentVersion="tcf-v2","boolean"==typeof e.gdprApplies&&!e.gdprApplies)return Object.assign(Object.assign({},t),{userConsentState:"notApplicable"});if((e=>{const t=e;return!!(t&&t.purpose&&t.purpose.consents&&t.vendor&&t.vendor.consents)})(e.vendorData)){const n=Object.values(e.vendorData.purpose.consents),o=Object.values(e.vendorData.vendor.consents);if(i=n.filter((e=>e)).length>0,s=o.filter((e=>e)).length>0,0===n.length||0===o.length)return Object.assign(Object.assign({},t),{userConsentState:"notAvailable"})}}else{if(t.userConsentVersion="tcf-v1","boolean"==typeof e.gdprApplies&&!e.gdprApplies)return Object.assign(Object.assign({},t),{userConsentState:"notApplicable"});if((e=>{const t=e;return!(!t||!t.purposeConsents||!t.vendorConsents)})(e.vendorData)){const n=Object.values(e.vendorData.purposeConsents),o=Object.values(e.vendorData.vendorConsents);if(i=n.filter((e=>e)).length>0,s=o.filter((e=>e)).length>0,0===n.length||0===o.length)return Object.assign(Object.assign({},t),{userConsentState:"notAvailable"})}}return t.userConsentState=i&&s?"accepted":"refused",t})(e[0])}catch(e){return e.context=e.context||{},e.context.pbjs={source:"pbjs:helpers"},D(e),t}},Y=e=>JSON.parse(JSON.stringify(e));function K(e,t){const i=function(e){const t=e.split("?")[1];if(void 0!==t){const e=t.split("=");return{key:e[0],value:e[1]}}return}(e),s=e.split("?")[0].startsWith("/")?e.split("?")[0]:`/${e.split("?")[0]}`,n=function(e){return e.getAdUnitPath().replace("//","/")}(t);return s===(n.startsWith("/")?n:`/${n}`)&&(void 0===i||t.getTargeting(i.key)[0]===i.value)}const X=(e,t)=>{const i=e.path;if(void 0===t||void 0===i)return;const s=t.pubads().getSlots();if(void 0===s)return;const n=s.filter((e=>K(i,e)));switch(n.length){case 0:return;case 1:return n[0];default:if(-1!==i.indexOf("?"))return d("[pubstackGoogleTag] retrieve first slot matching the  dimension",i),n[0];{const s=t.pubads();try{!function(e){if("object"!=typeof e||null===e||!("getSlotIdMap"in e)||"function"!=typeof e.getSlotIdMap)throw new Error("Missing property getSlotIdMap on googletag")}(s);const t=s.getSlotIdMap();d("[pubstackGoogleTag] get all slot map",t);return t[Object.keys(t).filter((e=>e.startsWith(i)))[function(e){const t=Array.from(document.querySelectorAll(`div[id*='${e.name}']`)).map((e=>e.id));return t.findIndex((t=>t===e.code))}(e)]]}catch(e){return void d(`[pubstackGoogleTag] ${e}`)}}}};const Z=e=>{const t=e;if(void 0!==t&&t.apiReady&&void 0!==t.cmd&&void 0!==t.pubads&&"function"==typeof t.pubads){if("function"==typeof t.pubads().refresh)return t}};const ee=e=>{const t=(e=>Z(e.googletag))(window);d("[pubstackFindElementById] adUnit ",e);const i=X(e,t);return d("[pubstackFindElementById] slot ",i),i?document.getElementById(i.getSlotElementId()):te(e.code)},te=e=>{const t=document.getElementById(e);return null===t?document.querySelector(`iframe[id*='${e}']`):t};function ie(e){const t=document.getElementsByTagName("meta");return Array.from(t).filter((t=>t.name.includes(`${e}:`)))}function se(e,t){return e.replace(`${t}:`,"")}const ne=[0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,59],oe=e=>{if(!e)throw new Error("IllegalArgumentException");const t={_value:[108,98,39,46,7,187,1,66,98,184,33,117,98,149,197,141],_scratch:new Array(16)};function i(){let e,i;for(i=0;i<16;i++)t._scratch[i]=0;for(i=0;i<16;i++)for(let s=0;s<16-i;s++)e=t._value[15-i]*ne[15-s]+(t._scratch[15-(i+s)]||0),e>255&&(i+s+1<16&&(t._scratch[15-(i+s+1)]+=e>>>8),e-=e>>>8<<8),t._scratch[15-(i+s)]=e;const s=t._scratch;t._scratch=t._value,t._value=s}return function(e){let s;if("string"==typeof e){const t=e.replace(/\r\n/g,"\n"),i=[];let n=0;for(s=0;s<t.length;s++){const e=t.charCodeAt(s);e<128?i[n++]=e:e<2048?(i[n++]=e>>6|192,i[n++]=63&e|128):(i[n++]=e>>12|224,i[n++]=e>>6&63|128,i[n++]=63&e|128)}e=i}for(s=0;s<e.length;s++)t._value[15]^=e[s],i()}(e),t._value.reduce(((e,t)=>e+("00"+t.toString(16)).slice(-2)),"")},re=(e,...t)=>{if(0===t.length||""===t.join(""))throw new Error("Failed to create hash");return oe(t.join("")).substr(0,e)},ae=(...e)=>{try{return re(14,...e)}catch(e){throw new Error("Failed to create an auction Id")}},de=(...e)=>{try{return re(8,...e)}catch(e){throw new Error("Failed to create a bid Id")}},ce=()=>oe(`${Math.random().toString(36)}${(new Date).getTime()}`),ue=(e,t)=>{const i=new Set;return e.tags.forEach((e=>i.add(e))),t.tags.forEach((e=>i.add(e))),i};class le{constructor(e){this.coreAuctionStream=new B,this.coreImpressionStream=new B,this.state=e}subscribe(e){this.coreAuctionStream.subscribe(e.onAuction),this.coreImpressionStream.subscribe(e.onImpression)}pushNewImpression(e){var t,i,s,n,o;const r=this.state.getAuction(e.auctionId),a=null!==(t=this.state.findLastAuctionId(r.adUnit))&&void 0!==t?t:"",d=this.state.findBidsByAuctionId(r.auctionId).filter((e=>e.state===b.BID)).map((e=>e)).sort(((e,t)=>t.cpm-e.cpm)),c=(null!==(s=null===(i=d[0])||void 0===i?void 0:i.cpm)&&void 0!==s?s:0)-(null!==(o=null===(n=d[1])||void 0===n?void 0:n.cpm)&&void 0!==o?o:0);return this.state.storeCoreBidResponses.set(e.bidId,e),this.impressionFormatAndForward(r,e,c,a)}pushNewAuction(e){var t,i;e.bidRequests=(t=e.bidRequests,i="adThink",t.filter((e=>e.bidderCode!==i))),0!==e.bidRequests.length&&this.coreAuctionStream.next(e)}checkMeasurability(e){return"IntersectionObserver"in window&&"IntersectionObserverEntry"in window&&"intersectionRatio"in window.IntersectionObserverEntry.prototype&&"isIntersecting"in window.IntersectionObserverEntry.prototype&&!!ee(e)}impressionSasFormatAndForward(e,t){const i={bidId:"smart-"+ce(),auctionId:"smart-"+ce(),lastAuctionId:"smart-"+ce(),adUnit:t,bidderCode:e.bidderCode,cpm:e.cpm,currency:e.currency,refresh:!1,size:e.size,userConsentState:"notAvailable",userConsentVersion:"notAvailable",hasUserId:"notAvailable",userIdProviderList:[],pbjsVersion:"smart-ad-server",tags:new Set,viewabilityMeasurable:!1,cpmUplift:0,pubstackRefresh:!1,pubstackRefreshRank:0,customFields:e.customFields};this.coreImpressionStream.next(i)}impressionFormatAndForward(e,t,i,s){const n=this.state.findBidsByAuctionId(e.auctionId),o=this.state.getAuction(s),r=H(n),a=this.checkMeasurability(e.adUnit),{userConsentState:d,userConsentVersion:c}=Q(r),u={bidId:t.bidResponseId,auctionId:e.auctionId,lastAuctionId:s,adUnit:e.adUnit,bidderCode:t.bidderCode,cpm:t.cpm,currency:t.currency,refresh:!1,size:t.size,userConsentState:d,userConsentVersion:c,hasUserId:e.hasUserId,userIdProviderList:e.userIdProviderList,pbjsVersion:e.pbjsVersion,tags:ue(e,t),viewabilityMeasurable:a,cpmUplift:i,dealId:t.dealId,advertiserDomains:t.advertiserDomains,pubstackRefresh:o.pubstackRefresh,pubstackRefreshRank:o.pubstackRefreshRank,customFields:t.customFields,bidNetRevenue:t.bidNetRevenue,source:t.source};this.coreImpressionStream.next(u)}}const be=e=>void 0!==e,pe=400,he="unknown",ve=new Map;class me{constructor(e){this.onBidResponseStream=new B,this.onAuctionEndStream=new B,this.onBidWonStream=new B,this.onBidWonFromSdkStream=new B,e&&(this.pbjsConfig=e)}getAdServerCurrency(){var e;return null===(e=this.pbjsConfig)||void 0===e?void 0:e.adServerCurrency}onBidResponse(e){const t=ae(e.adUnitCode,e.auctionId),i=de(e.requestId),s=de(i,e.adId);ve.set(e.adId,i),this.onBidResponseStream.next({adId:e.adId,auctionId:t,dealId:e.dealId||void 0,bidId:i,bidResponseId:s,cpm:e.cpm,currency:e.currency,size:e.size,mediaType:e.mediaType,tags:[],bidderCode:e.bidderCode,customFields:{},timeToRespond:e.timeToRespond,adapterCode:e.adapterCode,advertiserDomains:e.advertiserDomains})}onAuctionEnd(e,t="prebid"){!function(e,t){const i=[];if(e.forEach((e=>{try{t(e)}catch(e){i.push(e)}})),0!==i.length){const e=`forEach: Unexpected (${i.length}) errors\n${i.reduce(((e,t)=>`${e}\t- ${t.message}\n`),"")}`;throw new Error(e)}}(e.adUnits.filter((t=>void 0===e.adUnitCodes||e.adUnitCodes.includes(t.code))).reduce(((e,t)=>(e.find((e=>t.code===e.code))||e.push(t),e)),[]),(i=>{var s,n,o,r;const a=function(e,t){const i=e.adUnits.filter((e=>e.code===t)),s={code:t,bids:M(i),mediaTypes:P(i)},n=(e=>{let t;return e.forEach((e=>{const i=Y(e);i.pubstack&&0!=Object.keys(i.pubstack).length?t=i.pubstack:JSON.stringify(i.pubstack)!==JSON.stringify(t)&&c(`Two different pubstack declaration found for a adUnitCode ${i.code}`,i.pubstack,t)})),t})(i);n&&(s.pubstack=n);const o=(e=>{let t;return e.forEach((e=>{const i=Y(e);i.ortb2Imp?t=i.ortb2Imp:JSON.stringify(i.ortb2Imp)!==JSON.stringify(t)&&c(`Two different ortb2imp declaration found for a adUnitCode ${i.code}`,i.ortb2Imp,t)})),t})(i);o&&(s.ortb2Imp=o);return s}(e,i.code),d=(e=>({code:e.code,name:F(e),path:z(e)}))(a),u=ae(a.code,e.auctionId),l=e.labels||[],p=(g(h=e.bidderRequests),h.length>0&&h.every((e=>A(e.bidderRequestId))),h);var h;const v=e.bidderRequests.flatMap((t=>{var s;const n=ae(i.code,e.auctionId),o=t.gdprConsent,r=t.bidderCode,a=null===(s=e.seatNonBids)||void 0===s?void 0:s.find((e=>e.seat===t.bidderCode)),d=null==a?void 0:a.nonbid.find((e=>e.impid===i.code)),c=t.bids.filter((e=>e.adUnitCode===i.code)).map((t=>{const i=de(t.bidId),s=e.bidsReceived.find((e=>e.requestId===t.bidId)),a=e.noBids.find((e=>e.bidId===t.bidId)),d=e.bidsRejected.find((e=>e.requestId===t.bidId));let c={state:b.TIMEOUT};if(s){const e=de(i,s.adId);c={adId:s.adId,bidResponseId:e,cpm:s.cpm,currency:s.currency,size:s.size,mediaType:s.mediaType,bidNetRevenue:s.netRevenue,state:b.BID,timeToRespond:s.timeToRespond,dealId:s.dealId||void 0,advertiserDomains:s.advertiserDomains}}else a?c={state:b.NO_BID}:d&&(c={state:b.NO_BID,rejectionReason:d.rejectionReason});return Object.assign({auctionId:n,bidId:i,gdprConsent:o,bidderCode:r,source:t.src,tags:[G(t.params)].filter(be),customFields:{}},c)}));return d&&c.push({bidId:de(ce()),auctionId:n,gdprConsent:o,bidderCode:r,source:"s2s",tags:[],customFields:{source:"s2s"},state:101===d.statuscode?b.TIMEOUT:b.NO_BID}),c})),m={auctionId:u,adUnit:d,refreshIndex:0,sizes:_(a),userId:J(p),pbjsVersion:null!==(n=null===(s=this.pbjsConfig)||void 0===s?void 0:s.version)&&void 0!==n?n:he,tags:[...W(a)],labels:l,gracePeriod:null!==(r=null===(o=this.pbjsConfig)||void 0===o?void 0:o.gracePeriod)&&void 0!==r?r:pe,duration:e.auctionEnd-e.timestamp,bidRequests:v,timeout:e.timeout,customFields:{source:t}};this.onAuctionEndStream.next(m)}))}onBidWon(e){const t=Object.assign(Object.assign({},e),{bidNetRevenue:e.netRevenue,dealId:e.dealId||void 0,auctionId:ae(e.adUnitCode,e.auctionId),tags:[G(e.params[0]||{})].filter(be),customFields:{source:"prebid"}});this.onBidWonStream.next(t)}onBidWonFromSdk(e){const t=Object.assign(Object.assign({},e),{customFields:{source:"sdk"}});this.onBidWonFromSdkStream.next(t)}}class fe{constructor(){this.onAdStream=new B}onAd(e){const t=`/${e.formatId}`,i=e.formatId,s={bidderCode:"smart-rtb+",cpm:e.cpm,size:e.size,adUnitName:i,adUnitPathSuffix:t,formatId:e.formatId,customFields:{}};this.onAdStream.next(s)}}function ge(e){if(e.includes("pubstackRefresh")){const t=e.find((e=>e.startsWith("pubstackRefreshRank")));if(void 0!==t&&t.includes(":")){const e=parseInt(t.split(":")[1])||0;return e>0?e:0}}return 0}class ye{constructor(){this.state=new j,this.forwarder=new le(this.state),this.fallbackCurrency=void 0}bindIntegration(e){e instanceof me&&(e.onBidResponseStream.subscribe((e=>this.bidResponse(e)),D),e.onAuctionEndStream.subscribe((e=>this.auctionDone(e)),D),e.onBidWonStream.subscribe((e=>this.impression(e)),D),e.onBidWonFromSdkStream.subscribe((e=>this.impressionFromSdk(e)),D),this.fallbackCurrency=e.getAdServerCurrency()),e instanceof fe&&e.onAdStream.subscribe((e=>this.impressionSas(e)),D)}helperToBidResponse(e,t){var i;const s=Object.assign({},e);s.state=b.BID,t.tags.forEach((e=>s.tags.add(e)));let n=t.size;return"native"===t.mediaType&&(n="native"),"video"===t.mediaType&&(n=`video-${n}`),s.size=n,s.cpm=t.cpm,s.currency=null!==(i=t.currency)&&void 0!==i?i:this.fallbackCurrency,s.bidResponseId=t.bidResponseId,s.bidderCode=t.bidderCode,s}bidResponse(e){d("[pubstackCoreController] onBidResponse",e),e.bidderCode="nexx360"===e.adapterCode?"nexx360":e.bidderCode;const t={auctionId:e.auctionId,state:b.BID,tags:new Set(e.tags),customFields:e.customFields};try{const i=this.state.getAuction(e.auctionId);if(i){const s=i.bidRequests.find((t=>t.bidId===e.bidId));s&&(i.bidRequests=i.bidRequests.filter((t=>t.bidId!==e.bidId)),i.bidRequests.push(Object.assign(Object.assign(Object.assign({},s),this.helperToBidResponse(t,e)),{tags:s.tags})))}}catch(e){}}helperAuctionBidToBidResponse(e){var t;const i=Object.assign(Object.assign({},e),{tags:new Set});if(e.state===b.BID){let s=e.size;"native"===e.mediaType&&(s="native"),"video"===e.mediaType&&(s=`video-${s}`),i.size=s,i.cpm=e.cpm,i.currency=null!==(t=e.currency)&&void 0!==t?t:this.fallbackCurrency,i.bidResponseId=e.bidResponseId,i.timeToRespond=e.timeToRespond,i.dealId=e.dealId,i.advertiserDomains=e.advertiserDomains,i.bidNetRevenue=e.bidNetRevenue}return e.tags.forEach((e=>i.tags.add(e))),i}bidWonToCoreBidResponse(e){var t,i;const s=de(e.requestId);let n=e.size;return"native"===e.mediaType&&(n="native"),"video"===e.mediaType&&(n=`video-${n}`),{adId:e.adId,bidId:s,bidResponseId:de(s,e.adId),bidderCode:"nexx360"===e.adapterCode?"nexx360":null!==(t=e.bidderCode)&&void 0!==t?t:"",cpm:e.cpm,size:n,state:b.BID,auctionId:e.auctionId,tags:new Set(e.tags),currency:null!==(i=e.currency)&&void 0!==i?i:this.fallbackCurrency,customFields:e.customFields,dealId:e.dealId,advertiserDomains:e.advertiserDomains,bidNetRevenue:e.bidNetRevenue,source:e.source}}auctionDone(e){d("[pubstackCoreController] onAuctionDone",e.auctionId);try{const t=(e.bidRequests||[]).map(this.helperAuctionBidToBidResponse),i=H(t),{userConsentState:s,userConsentVersion:n}=Q(i),o={auctionId:e.auctionId,adUnit:e.adUnit,tags:new Set(e.tags),sizes:new Set(e.sizes),hasUserId:e.userId.hasUserId,userIdProviderList:e.userId.userIdProviderList,refreshIndex:e.refreshIndex,pbjsVersion:e.pbjsVersion,refresh:!1,pubstackRefresh:e.labels.includes("pubstackRefresh"),pubstackRefreshRank:ge(e.labels),userConsentState:s,userConsentVersion:n,bidRequests:t,customFields:e.customFields,duration:e.duration,timeout:e.timeout,state:"RUNNING"};this.state.setAuction(o);const r=()=>{const t=this.state.getAuction(e.auctionId);"FINISHED"!==t.state?(this.forwarder.pushNewAuction(t),t.state="FINISHED",this.state.setAuction(t)):d("[pubstackCoreController] auction is already finished",t)};void 0===e.gracePeriod?r():setTimeout((()=>r()),e.gracePeriod)}catch(e){d("[pubstackCoreController] error: cannot set auction as done because auction is not running")}}findBidResponseDuplicate(e){const t=this.state.storeCoreBidResponses.get(e.bidId),i=!!t&&t.bidResponseId===e.bidResponseId&&t.bidderCode===e.bidderCode;return i&&d("[pubstackCoreController] duplicate bid response found",e),i}_impression(e){if("FINISHED"===this.state.getAuction(e.auctionId).state)this.findBidResponseDuplicate(e)||this.forwarder.pushNewImpression(e);else{const t=i=>{i.auctionId===e.auctionId&&(this.findBidResponseDuplicate(e)||this.forwarder.pushNewImpression(e),this.forwarder.coreAuctionStream.unsubscribe(t))};this.forwarder.coreAuctionStream.subscribe(t)}}impression(e){d("[pubstackCoreController] onImpression",e);try{const t=this.bidWonToCoreBidResponse(e);this._impression(t)}catch(e){d("[pubstackCoreController] error: cannot create impression",e)}}impressionFromSdk(e){d("[pubstackCoreController] onImpression",e);try{const t=Array.from(this.state.storeAuctions.values()).find((t=>t.bidRequests.filter((e=>e.state===b.BID)).find((t=>t.adId===e.adId))));if(t){const i=t.bidRequests.filter((e=>e.state===b.BID)).find((t=>t.adId===e.adId));i.customFields=Object.assign(Object.assign({},i.customFields),e.customFields),this._impression(i)}}catch(e){d("[pubstackCoreController] error: cannot create impression",e)}}impressionSas(e){d("[pubstackCoreController] onImpressionSas",e);try{const t=this.state.findAuctionByAdUnitPath(e.adUnitPathSuffix);A(t,`onSasNewBidResponse: cannot retrieve related auction, @adUnitName=${e.adUnitName}, @adUnitPath=${e.adUnitPathSuffix}`),e.currency=this.fallbackCurrency,this.forwarder.impressionSasFormatAndForward(e,t.adUnit)}catch(e){d("[pubstackCoreController] error: cannot create impression",e)}}subscribe(e){this.forwarder.subscribe(e)}debug(){const e=[];return this.forwarder.subscribe({onAuction:t=>e.push(t),onImpression:t=>e.push(t)}),{auctions:this.state,auctionsDone:void 0,adUnits:void 0,events:e}}}const Ie=(e,t)=>Object.entries(t).every((([t,i])=>typeof i==typeof{}&&typeof e[t]==typeof{}?Ie(e[t],i):typeof e[t]==typeof i)),ke=(e,t)=>{if(t)for(let i=0;i<1e3;i+=1)try{const s=e([],{},[i]);try{if(Ie(s,t))return s}catch(e){}}catch(e){}},we={AUCTION_INIT:"auctionInit",AUCTION_END:"auctionEnd",BID_TIMEOUT:"bidTimeout",BID_REQUESTED:"bidRequested",BID_RESPONSE:"bidResponse",BID_WON:"bidWon",NO_BID:"noBid"};function Re(e,t,i="prebid"){return{on(s,n){d(`[pbjsIntegration] pbjs.dispatcher (${i}) ${s}`,n),s===we.AUCTION_END&&t.onAuctionEnd(e.toAuctionEnd(n),i),s===we.BID_RESPONSE&&t.onBidResponse(e.toBidResponse(n)),s===we.BID_WON&&"prebid"===i&&t.onBidWon(e.toBidWon(n)),s===we.BID_WON&&"sdk"===i&&t.onBidWonFromSdk(e.toBidWonFromSdk(n))}}}function Ce(e){let t;if(void 0!==e)if(y(e))t=e;else if(I(e)){const i=Number(e);isNaN(i)||(t=i)}return void 0!==t?Math.trunc(t):t}function Ae(e){try{return g(t=e,i),t.every((e=>C(e))),e}catch(e){return}var t,i}function Te(e){try{return S(e),e}catch(e){return{}}}function Ee(e){try{return w(e),e}catch(e){return void d("Error on validator but not throwing since not mandatory",e.message)}}function Se(){const e=e=>{var t,i;S(e,"Auction event's adUnits should all be objects"),C(e.code,'Auction event\'s adUnits should all have a key "code" as a string'),g(e.bids,'Auction event\'s adUnits should all have a key "bids" as an array');const s=e.bids.map((t=>{try{return(e=>{var t;S(e,"Auction event's adUnits bidders should all be objects"),C(e.bidder,'Auction event\'s adUnits bidders should all have a key "bidder" as a string');const i=null!==(t=e.params)&&void 0!==t?t:{};return S(i,'Auction event\'s adUnits bidders should all have a key "params" as an object'),{bidder:e.bidder,params:i}})(t)}catch(t){return void c(`[pbjsIntegration] Discarding bidder from ${e.code}`,t)}})).filter((e=>void 0!==e)),n={};if(e.mediaTypes){if(S(e.mediaTypes,'Auction event\'s adUnits should all have a key "mediaTypes" as an object'),e.mediaTypes.banner){S(e.mediaTypes.banner,'Auction event\'s adUnits mediaTypes can all have a key "banner" that should be an object');const i=null!==(t=e.mediaTypes.banner.sizes)&&void 0!==t?t:[];g(i,'Auction event\'s adUnits mediaTypes banner should all have a key "sizes" that should be an array');const s=i.filter((e=>Array.isArray(e)&&2===e.length)).map((e=>{try{return g(e),[parseInt(e[0]),parseInt(e[1])]}catch(e){return[0,0]}}));n.banner={sizes:s,sizeConfig:e.mediaTypes.banner.sizeConfig}}if(e.mediaTypes.native&&(n.native={sizes:"native"}),e.mediaTypes.video&&(S(e.mediaTypes.video,'Auction event\'s adUnits mediaTypes can all have a key "video" that should be an object'),e.mediaTypes.video.playerSize)){g(e.mediaTypes.video.playerSize,'Auction event\'s adUnits mediaTypes video should all have a key "playerSize" that should be an array');const t=(null!==(i=e.mediaTypes.video.playerSize)&&void 0!==i?i:[]).filter((e=>Array.isArray(e)&&2===e.length));n.video={playerSize:t}}}const o={bids:s,code:e.code,mediaTypes:n},r=e.pubstack;void 0!==r&&(S(r),o.pubstack=r);const a=(e=>{if(!U(e,"ortb2Imp"))return;const t=e.ortb2Imp;if(!U(t,"ext"))return;const i=t.ext;if(!U(i,"data"))return;const s=i.data;return U(s,"pbadslot")&&I(s.pbadslot)?{ext:{data:{pbadslot:s.pbadslot}}}:void 0})(e);return a&&(o.ortb2Imp=a),o},t=e=>{S(e,"Auction event's bidderRequests should all be objects"),C(e.bidderRequestId,'Auction event\'s bidderRequests should all have a key "bidderRequestId" as a string'),C(e.bidderCode,'Auction event\'s bidderRequests should all have a key "bidderCode" as a string'),g(e.bids,'Auction event\'s bidderRequests should all have a key "bids" as an array');const t=e.bids.map((t=>{try{return i(t,"Auction event's bidderRequests")}catch(t){return void c(`[pbjsIntegration] Discarding bid request from ${e.bidderRequestId}`,t)}})).filter((e=>void 0!==e)),s={bidderRequestId:e.bidderRequestId,bids:t,bidderCode:e.bidderCode};return e.gdprConsent&&(s.gdprConsent=e.gdprConsent),s},i=(e,t)=>{var i,s,n;S(e,t+"'s bids should all be objects"),C(e.adUnitCode,t+' bids should all have a key "adUnitCode" as a string'),C(e.bidId,t+' bids should all have a key "bidId" as a string'),C(e.bidder,t+' bids should all have a key "bidder" as a string');const o=null!==(i=e.params)&&void 0!==i?i:{};S(o,t+' bids can all have a key "params" that should be an object');const r=null!==(s=e.userId)&&void 0!==s?s:{};S(r,t+' bids can all have a key "userId" that should be an object');const a=null!==(n=e.crumbs)&&void 0!==n?n:{};return S(a,t+' bids can all have a key "crumbs" that should be an object'),w(e.src),{adUnitCode:e.adUnitCode,bidId:e.bidId,bidder:e.bidder,params:o,userId:r,crumbs:a,src:e.src}};return{toBidRejected:e=>(S(e,"BidRejected event should be an object"),C(e.requestId,'BidRequested event should have a "requestId" key as a string'),C(e.rejectionReason,'BidRejected event should have a "rejectionReason" key as a string'),{requestId:e.requestId,rejectionReason:e.rejectionReason}),toSeatNonBid:function(e){return S(e,"SeatNonBid event should be an object"),C(e.seat,'SeatNonBid event should have a "seat" key as a string'),g(e.nonbid,'SeatNonBid event should have a "seat" key as a string'),e.nonbid.map((t=>{try{return S(t,"Nonbid should be an object"),C(t.impid,'Nonbid should have a "impid" key as a string'),k(t.statuscode,'Nonbid should have a "statuscode" key as a number'),{impid:t.impid,statuscode:t.statuscode}}catch(t){return void c(`[pbjsIntegration] Discarding Nonbid from auction event ${e.auctionId}`,t)}})).filter((e=>void 0!==e)),{seat:e.seat,nonbid:e.nonbid}},toAuctionEnd:function(i){let s,n,o=[];S(i,"Auction event should be an object"),C(i.auctionId,'Auction event should have a "auctionId" key as a string'),g(i.adUnits,'Auction event should have a "adUnits" key as a non-empty array'),T(i.adUnits,'Auction event should have a "adUnits" key as a non-empty array'),void 0!==i.labels&&(g(i.labels,'Auction event can have a "labels" key that should be an array'),n=i.labels),g(i.bidderRequests,'Auction event should have a "bidderRequests" key as a non-empty array'),T(i.bidderRequests,'Auction event should have a "bidderRequests" key as a non-empty array');const r=Ce(i.timeout);i.timeout&&!r&&c(`[pbjsIntegration] unable to read timeout from auction event ${i.auctionId}`);const a=i.adUnits.map((t=>{try{return e(t)}catch(e){return void c(`[pbjsIntegration] Discarding adUnit from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e)),u=i.bidderRequests.map((e=>{try{return t(e)}catch(e){return void c(`[pbjsIntegration] Discarding bidderRequest from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e));g(i.bidsReceived,'Auction event should have a "bidsReceived" key as a non-empty array');const l=i.bidsReceived.map((e=>{try{return this.toBidResponse(e)}catch(e){return void c(`[pbjsIntegration] Discarding bidReceived from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e));g(i.adUnitCodes,'Auction event should have a "adUnitCodes" key as a non-empty array'),T(i.adUnitCodes,'Auction event should have a "adUnitCodes" key as a non-empty array');try{g(i.bidsRejected,'Auction event should have a "bidsRejected" key as an array'),o=i.bidsRejected.map((e=>{try{return this.toBidRejected(e)}catch(e){return void c(`[pbjsIntegration] Discarding bidRejected from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e))}catch(e){d("Error on validator but not throwing since not mandatory",e.message)}g(i.noBids,'Auction event should have a "noBids" key as an array');const b=i.noBids.map((e=>{try{return this.toNoBid(e)}catch(e){return void c(`[pbjsIntegration] Discarding noBid from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e));try{g(i.seatNonBids,'Auction event should have a "noBids" key as an array'),s=i.seatNonBids.map((e=>{try{return this.toSeatNonBid(e)}catch(e){return void c(`[pbjsIntegration] Discarding SeatNonBids from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e))}catch(e){d("Error on validator but not throwing since not mandatory",e.message)}return function(e,t,i){if(!t.includes(e))throw new f(`Expected values to be one of '${t}', but received ${e}`)}(i.auctionStatus,["completed","inProgress","started"]),k(i.auctionEnd),k(i.timestamp),{auctionId:i.auctionId,bidderRequests:u,adUnits:a,labels:n,timeout:r,auctionEnd:i.auctionEnd,auctionStatus:i.auctionStatus,noBids:b,adUnitCodes:i.adUnitCodes,bidsRejected:o,bidsReceived:l,timestamp:i.timestamp,winningBids:[],seatNonBids:s}},toAuction:function(i){let s;S(i,"Auction event should be an object"),C(i.auctionId,'Auction event should have a "auctionId" key as a string'),g(i.adUnits,'Auction event should have a "adUnits" key as a non-empty array'),T(i.adUnits,'Auction event should have a "adUnits" key as a non-empty array'),void 0!==i.labels&&(g(i.labels,'Auction event can have a "labels" key that should be an array'),s=i.labels),g(i.bidderRequests,'Auction event should have a "bidderRequests" key as a non-empty array'),T(i.bidderRequests,'Auction event should have a "bidderRequests" key as a non-empty array');const n=Ce(i.timeout);i.timeout&&!n&&c(`[pbjsIntegration] unable to read timeout from auction event ${i.auctionId}`);const o=i.adUnits.map((t=>{try{return e(t)}catch(e){return void c(`[pbjsIntegration] Discarding adUnit from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e)),r=i.bidderRequests.map((e=>{try{return t(e)}catch(e){return void c(`[pbjsIntegration] Discarding bidderRequest from auction event ${i.auctionId}`,e)}})).filter((e=>void 0!==e));return{auctionId:i.auctionId,bidderRequests:r,adUnits:o,labels:s,timeout:n}},toBidRequested(e){S(e,"BidRequested event should be an object"),C(e.auctionId,'BidRequested event should have a "auctionId" key as a string'),g(e.bids,'BidRequested event should have a "bids" key as an array');const t=e.bids.map((t=>{try{return i(t,"BidRequested event")}catch(t){return void c(`[pbjsIntegration] Discarding bid request from bid requested event ${e.auctionId}`,t)}})).filter((e=>void 0!==e)),s={auctionId:e.auctionId,bids:t};return e.gdprConsent&&(s.gdprConsent=e.gdprConsent),s},toBidResponse(e){var t;S(e,"BidResponse event should be an object"),C(e.auctionId,'BidRequested event should have a "auctionId" key as a string'),C(e.adUnitCode,'BidRequested event should have a "adUnitCode" key as a string'),C(e.adId,'BidRequested event should have a "adId" key as a string'),C(e.requestId,'BidRequested event should have a "requestId" key as a string');const i=I(e.cpm)?Number.parseFloat(e.cpm):e.cpm;let s;const n=Ee(e.dealId);k(i,'BidRequested event should have a "cpm" key as a number');let o,r=e.size;"string"!=typeof r&&(r=e.width&&e.height?`${e.width}x${e.height}`:"unknown"),C(e.mediaType,'BidRequested event should have a "mediaType" key as a string'),C(r,'BidRequested event should have a "size" key as a string'),I(e.currency)&&(o=e.currency),C(e.bidderCode,'BidResponse event should have a "bidderCode" key as a string'),function(e,t){if(null!=e&&!y(e))throw new f("Expected value to be a number, but received "+typeof e)}(e.timeToRespond),R(e.netRevenue);const a=Ae(Te(e.meta).advertiserDomains);try{C(e.adapterCode,'BidWon event should have a "bidderCode" key as a string'),s=e.adapterCode}catch(e){d("Error on validator but not throwing since not mandatory",e.message)}return{adId:e.adId,adUnitCode:e.adUnitCode,auctionId:e.auctionId,cpm:i,currency:o,requestId:e.requestId,size:r,bidderCode:e.bidderCode,mediaType:null!==(t=e.mediaType)&&void 0!==t?t:"banner",timeToRespond:e.timeToRespond,adapterCode:s,netRevenue:e.netRevenue,dealId:n,advertiserDomains:a}},toBidTimeout(e){g(e,"BidTimeout event should be an array");const t=[];return e.forEach((e=>{try{S(e,"BidTimeout events should all be objects"),C(e.adUnitCode,'BidTimeout events should all have a key "adUnitCode" as a string'),C(e.auctionId,'BidTimeout events should all have a key "auctionId" as a string'),C(e.bidId,'BidTimeout events should all have a key "bidId" as a string'),t.push({adUnitCode:e.adUnitCode,auctionId:e.auctionId,bidId:e.bidId})}catch(t){d("Discarding bid timeout event because ",t.message,e)}})),t},toNoBid:e=>(S(e,"NoBid event should be an object"),C(e.auctionId,'NoBid event should have a "auctionId" key as a string'),C(e.bidId,'NoBid event should have a "bidId" key as a string'),C(e.adUnitCode,'NoBid event should have a "adUnitCode" key as a string'),{bidId:e.bidId,adUnitCode:e.adUnitCode,auctionId:e.auctionId}),toBidWon(e){var t;let i,s,n,o,r,a;S(e,"BidWon event should be an object"),C(e.adId,'BidWon event should have a "adId" key as a string'),C(e.requestId,'BidWon event should have a "requestId" key as a string');const c=Ee(e.dealId);I(e.currency)&&(a=e.currency);const u=I(e.cpm)?Number.parseFloat(e.cpm):e.cpm;k(u,'BidRequested event should have a "cpm" key as a number'),C(e.mediaType,'BidRequested event should have a "mediaType" key as a string'),C(e.size,'BidWon event should have a "size" key as a string'),r=e.size,C(e.auctionId,'BidWon event should have a "auctionId" key as a string'),i=e.auctionId,C(e.adUnitCode,'BidWon event should have a "adUnitCode" key as a string'),s=e.adUnitCode;try{C(e.bidderCode,'BidWon event should have a "bidderCode" key as a string'),n=e.bidderCode}catch(e){d("Error on validator but not throwing since not mandatory for monitoring (only for refresh)",e.message)}try{C(e.adapterCode,'BidWon event should have a "bidderCode" key as a string'),o=e.adapterCode}catch(e){d("Error on validator but not throwing since not mandatory",e.message)}g(e.params),R(e.netRevenue),w(e.source);const l=Ae(Te(e.meta).advertiserDomains);return{adId:e.adId,adUnitCode:s,auctionId:i,bidderCode:n,adapterCode:o,size:r,requestId:e.requestId,currency:a,cpm:u,mediaType:null!==(t=e.mediaType)&&void 0!==t?t:"banner",params:e.params,dealId:c,netRevenue:e.netRevenue,source:e.source,advertiserDomains:l}},toBidWonFromSdk:e=>(S(e,"BidWon event should be an object"),C(e.adId,'BidWon event should have a "adId" key as a string'),{adId:e.adId})}}const Ue=400;class je{constructor(){this.state="new",this.elapsedTime=0,this.timeTargets=[]}start(){return"stopped"===this.state&&(this.elapsedTime=0),"started"===this.state?this.elapsed():(this.state="started",this.timeoutId=setTimeout((()=>this.update()),je.pacing),this.elapsedTime)}pause(){if("paused"===this.state||"stopped"===this.state)return this.elapsedTime;const e=this.update();return this.state="paused",e}stop(){if("stopped"===this.state)return this.elapsedTime;const e=this.update();return this.state="stopped",e}elapsed(){return"started"===this.state&&this.update(),this.elapsedTime}timeTargetReached(e){return new Promise((t=>{this.timeTargets.push([e,t])}))}update(){let e=je.pacing;if("started"===this.state){this.elapsedTime+=e;for(let t=this.timeTargets.length;t--;){const[i,s]=this.timeTargets[t];this.elapsedTime>=i?(s(i),this.timeTargets.splice(t,1)):e=Math.min(e,i-this.elapsedTime)}}return"stopped"!==this.state&&(this.timeoutId&&clearTimeout(this.timeoutId),this.timeoutId=setTimeout((()=>this.update()),e)),this.elapsedTime}}je.pacing=100;class Be{constructor(e,t,i,s,n){this.creative=s,this.timer=new je,this.inViewPercentage=e,this.cumulative=i,this.timer.timeTargetReached(t).then((()=>{n()}))}pauseTimer(){this.timer.pause()}startTimer(){this.timer.start()}stopTimer(){this.timer.stop()}getElapsed(){return this.timer.elapsed()}isViewable(){return this.inView}intersectionChange(e){this.creative.visibilityRatioFromIntersection(e)>=this.inViewPercentage?this.inView||(this.timer.start(),this.inView=!0):this.inView&&(this.cumulative?this.timer.pause():this.timer.stop(),this.inView=!1)}getTimerState(){return this.timer.state}}class Ne{constructor(e){this.adUnit=e}visibilityRatioFromIntersection(e){const t=Oe(this.adUnit,this.adUnit);if(this.adUnit===t)return e.intersectionRatio;const i=t.getBoundingClientRect();return e.intersectionRect.height/i.height}}const Oe=(e,t)=>(Ve(e)<Ve(t)&&(e=t),Array.from(t.children).filter((e=>e instanceof HTMLElement)).forEach((t=>{e=Oe(e,t)})),e),Ve=e=>e.getBoundingClientRect?e.getBoundingClientRect().height:0,$e={root:null,rootMargin:"0px",threshold:[0,.3,.5,1]};class qe{constructor(e,t,i){this.windowActive=!0,this.pbstckWindow=i,this.visibilityState=i.document.visibilityState,this.trackedOnFocusChange=this.onFocusChange.bind(this),i.addEventListener("focus",this.trackedOnFocusChange),i.addEventListener("blur",this.trackedOnFocusChange),this.trackedOnVisibilityChange=this.onVisibilityChange.bind(this),i.addEventListener("visibilitychange",this.trackedOnVisibilityChange);const s=this.getObserverThresholds(t);this.observer=new IntersectionObserver((e=>this.intersectionObserverCallback(e)),s),this.observer.observe(e);const n=new Ne(e);this.computer=new Be(t.minPercentageInView,t.minTimeInView,t.cumulativeTimer,n,(()=>t.completionCallback(e.id))),"hidden"!==this.visibilityState&&this.windowActive||this.stop()}getObserverThresholds(e){return.3===e.minPercentageInView?Object.assign(Object.assign({},$e),{threshold:[.3,.5,.75,1]}):Object.assign(Object.assign({},$e),{threshold:[.5,.75,1]})}onVisibilityChange(){this.visibilityState="visible"===this.visibilityState?"hidden":"visible",this.checkWindowActive()}onFocusChange(e){this.windowActive="focusin"===e.type||"focus"===e.type,this.checkWindowActive()}checkWindowActive(){"visible"===this.visibilityState&&this.windowActive?this.start():this.pause()}destroy(){var e;this.stop(),null===(e=this.observer)||void 0===e||e.disconnect(),this.pbstckWindow.removeEventListener("visibilitychange",this.trackedOnVisibilityChange),this.pbstckWindow.removeEventListener("focus",this.trackedOnFocusChange),this.pbstckWindow.removeEventListener("blur",this.trackedOnFocusChange),this.computer=null,this.observer=null}getElapsed(){return null===this.computer?0:this.computer.getElapsed()}pause(){var e;null===(e=this.computer)||void 0===e||e.pauseTimer()}start(){var e;null===(e=this.computer)||void 0===e||e.startTimer()}stop(){var e;null===(e=this.computer)||void 0===e||e.stopTimer()}intersectionObserverCallback(e){e.forEach((e=>{var t;null===(t=this.computer)||void 0===t||t.intersectionChange(e)}))}getTimerState(){var e;return null===(e=this.computer)||void 0===e?void 0:e.getTimerState()}}const De={viewableTime:1e3,largeAdunitSize:242e3,largeAdunitTreshold:.3,standardAdunitTreshold:.5};class xe{constructor(e,t){this.viewabilityState=new Map,this.viewedTimeState=new Map,this.elementIdToCode=new Map,this.viewabilityStream=new B,this.viewedStream=new B,d("[pubstackViewability] Create ViewabilityController with config",De),this.pbstckWindow=t,this.pbstckWindow.addEventListener("unload",(()=>this.unloadMeasuredImpressions())),e.forwarder.coreImpressionStream.subscribe((e=>{d("[pubstackViewability] Receive impression",e.bidderCode,e.adUnit.code),this.track(e)})),e.forwarder.coreAuctionStream.subscribe((e=>{d("[pubstackViewability] Receive auctionend",e.adUnit.code),this.endMeasure(e.adUnit.code)}))}onUnload(e){this.unloadCallback=e}endMeasure(e){d("[pubstackViewability] receive event to stop measure");const t=this.viewedTimeState.get(e);void 0!==t?(t.viewabilitytracker.stop(),this.onMeasurable(e)):d("[pubstackViewability] event received but no tracker to stop, skipping")}track(e){if(!e.viewabilityMeasurable)return void d("[pubstackViewability] Cannot track impression for adUnit ",e.adUnit);const t=ee(e.adUnit);null!==t?(this.trackViewability(e,t),this.trackMeasure(e,t)):D(new Error(`[pubstackViewability] Unexpected null HTML Element on viewable impression for adUnit ${e.adUnit.name}`))}trackMeasure(e,i){return t(this,void 0,void 0,(function*(){var t;let s=null===(t=this.viewedTimeState.get(e.adUnit.code))||void 0===t?void 0:t.viewabilitytracker;this.elementIdToCode.set(i.id,e.adUnit.code),void 0!==s&&(d(`[pubstackViewability] replacing existing measurability tracker on ${i.id}`),s.stop(),this.onMeasurable(e.adUnit.code)),d(`[pubstackViewability] tracking code ${e.adUnit.code} with rule MRC for measurability`);const n={minPercentageInView:this.minPercentageInView(i,De),minTimeInView:18e4,cumulativeTimer:!0,completionCallback:e=>{const t=this.elementIdToCode.get(e);void 0!==t?this.onMeasurable(t):d(`[pubstackViewability] unable to find matching adunitcode for element ${e}`)}};s=new qe(i,n,this.pbstckWindow),this.viewedTimeState.set(e.adUnit.code,{impression:e,viewabilitytracker:s})}))}trackViewability(e,i){return t(this,void 0,void 0,(function*(){var t;let s=null===(t=this.viewabilityState.get(i.id))||void 0===t?void 0:t.viewabilitytracker;void 0!==s&&(d(`[pubstackViewability] replacing existing tracker on ${i.id}`),s.destroy(),this.viewabilityState.delete(i.id)),d(`[pubstackViewability] tracking element ${i.id} with rule MRC for monitoring`);const n={minPercentageInView:this.minPercentageInView(i,De),minTimeInView:De.viewableTime,cumulativeTimer:!1,completionCallback:e=>this.onViewable(e)};s=new qe(i,n,this.pbstckWindow),this.viewabilityState.set(i.id,{impression:e,viewabilitytracker:s})}))}minPercentageInView(e,t){const i=window.getComputedStyle(e);return Number(i.getPropertyValue("width").replace(/px/,""))*Number(i.getPropertyValue("height").replace(/px/,""))>t.largeAdunitSize?t.largeAdunitTreshold:t.standardAdunitTreshold}unloadMeasuredImpressions(){if(d("[pubstackViewability] page unloaded, forwarding impressions measured"),void 0!==this.unloadCallback){const e=[];Array.from(this.viewedTimeState.values()).forEach((t=>{if(void 0!==t.viewabilitytracker){t.viewabilitytracker.stop();const i=Math.floor(t.viewabilitytracker.getElapsed()/1e3);i>0&&e.push({bidId:t.impression.bidId,auctionId:t.impression.auctionId,lastAuctionId:t.impression.lastAuctionId,adUnit:t.impression.adUnit,bidderCode:t.impression.bidderCode,pbjsVersion:t.impression.pbjsVersion,cpm:t.impression.cpm,currency:t.impression.currency,refresh:t.impression.refresh,size:t.impression.size,viewedTime:i,pubstackRefresh:t.impression.pubstackRefresh,pubstackRefreshRank:t.impression.pubstackRefreshRank})}})),e.length>0&&this.unloadCallback(e)}}onMeasurable(e){d(`[pubstackViewability] Measurability Event on AdUnit code ${e}`);const t=this.viewedTimeState.get(e);if(void 0===t)return void D(new Error(`[pubstackViewability] Impression not found for AdUnit code ${e}`));this.viewedTimeState.delete(e);if(Math.floor(t.viewabilitytracker.getElapsed()/1e3)>0){const e=t.impression,i={bidId:e.bidId,auctionId:e.auctionId,lastAuctionId:e.lastAuctionId,adUnit:e.adUnit,bidderCode:e.bidderCode,pbjsVersion:e.pbjsVersion,cpm:e.cpm,currency:e.currency,refresh:e.refresh,size:e.size,viewedTime:Math.floor(t.viewabilitytracker.getElapsed()/1e3),pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank};d(`[pubstackViewability] Forwarding measured impression on code ${e.adUnit.code}`),this.viewedStream.next(i)}t.viewabilitytracker.destroy()}onViewable(e){d(`[pubstackViewability] Viewability Event on element ${e}`);const t=this.viewabilityState.get(e);if(void 0===t)return void D(new Error(`[pubstackViewability] Impression not found for ElementId ${e}`));this.viewabilityState.set(e,t);const i=t.impression,s={bidId:i.bidId,auctionId:i.auctionId,lastAuctionId:i.lastAuctionId,adUnit:i.adUnit,bidderCode:i.bidderCode,pbjsVersion:i.pbjsVersion,cpm:i.cpm,currency:i.currency,refresh:i.refresh,size:i.size,htmlElementId:e,pubstackRefresh:i.pubstackRefresh,pubstackRefreshRank:i.pubstackRefreshRank};d(`[pubstackViewability] Forwarding viewable impression ${s.htmlElementId}`),this.viewabilityStream.next(s)}}function Fe(e,t){return"object"==typeof t&&t instanceof Set?Array.from(t):t}function ze(e,t){return"tags"!==e&&"sizes"!==e||!Array.isArray(t)?t:new Set(t)}class Me{constructor(e){this.coreEvents=[],this.errors=[],e.forwarder.coreAuctionStream.subscribe((e=>this.addEvent(e))),e.forwarder.coreImpressionStream.subscribe((e=>this.addEvent(e)))}addEvent(e){this.coreEvents.push(e)}addError(e){this.errors.push(e)}getEvents(){return this.coreEvents.map((e=>JSON.parse(JSON.stringify(e,Fe),ze)))}getErrors(){return this.errors}}const Pe=e=>{var t;const i=null!==(t=null==e?void 0:e.host)&&void 0!==t?t:"unknown";return i.startsWith("www.")?i.substring(4):i},_e=e=>{let t;return t=e&&e.protocol&&e.host&&e.pathname?`${e.protocol}//${e.host}${e.pathname}`:"unknown",t};function Le(e){var t;const i="pbstck_context";let s=null===(t=ie(i).find((e=>"pbstck_ab_test"===se(e.name,i))))||void 0===t?void 0:t.content;return s&&!e.includes(s)&&(s=void 0),s}class We{constructor(e,t,i,s,n){var o;this.items=[],this.url=e,this.buffer=null!==(o=null==n?void 0:n.buffer)&&void 0!==o?o:We.defaults.buffer,this.sender=t,this.context=i,this.abTestValues=s}buildUrl(){const e=this.context.customFields["kleanads-version"],t=this.context.customFields["config-version"],i=this.items.reduce(((e,t)=>e+(t.pubstackRefresh?1:0)),0),s=e?`&v=${e}&s=${t}`:"",n=i>0?`&rc=${i}`:"";return`${this.url}?tId=${this.context.tagId}&c=${this.items.length}${s}${n}`}batchThenSend(e,t=!0){const i=t?Ge(e,this.context,this.abTestValues):e;if(this.items.push(i),0===this.buffer)return this.flush();1===this.items.length&&setTimeout((()=>this.flush()),this.buffer)}flush(){0!==this.items.length&&(this.sender(this.buildUrl(),[...this.items]),this.reset())}reset(){this.items=[]}}We.defaults={buffer:150};const Ge=(e,t,i)=>{var s;const{customFields:n}=t,{customFields:o}=e,r=null===(s=navigator.connection)||void 0===s?void 0:s.effectiveType,a=Object.assign(Object.assign({},o),n);return Object.assign(Object.assign(Object.assign({},e),t),{customFields:a,abTestPopulation:i?Le(i):void 0,domain:Pe(window.location),href:_e(window.location),networkConnectionEffectiveType:r,pageId:window.__pbstck_page_id||"unknown",kleanAdsStackVersion:a["config-version"],kleanAdsStackId:a["kleanads-stack-id"]})};class Je{constructor(e,t,i){this.url=e,this.context=i,this.sender=t}buildUrl(e){return`${this.url}?sId=${this.context.scopeId.substring(0,8)}&tId=${this.context.tagId}&c=${e}&ctr=${this.context.country}`}send(e){const t=e.map((e=>He(e,this.context)));this.sender(this.buildUrl(t.length),t)}}const He=(e,t)=>Object.assign(Object.assign(Object.assign({},e),t),{domain:Pe(window.location),href:_e(window.location)}),Qe=ce();class Ye{constructor(e,t,i,s,n){const o=e.slice(0,-7);this.viewabilityGateway=new We(`${e}/viewability`,Ke,t,n),this.auctionGateway=new We(`${e}/auction`,Ke,t,n),this.impressionGateway=new We(`${e}/impression`,Ke,t,n),this.errorGateway=new We(`${e}/error`,Ke,t,n),this.traceGateway=new We(`${o}/trace`,Ke,t,void 0,{buffer:5e3}),this.measuredImpressionGateway=new We(`${e}/measured`,Ke,t,n),this.measuredImpressionBeaconGateway=new Je(`${e}/measured`,Xe,t),this.pageGateway=new We(`${e}/page`,Ke,t,n),this.bindController(i,s)}bindController(e,t){e.forwarder.coreAuctionStream.subscribe((e=>this.formatAndForwardAuction(e))),e.forwarder.coreImpressionStream.subscribe((e=>{this.formatAndForwardImpression(e)})),void 0!==t&&(t.viewabilityStream.subscribe((e=>{this.formatAndForwardViewability(e)})),t.viewedStream.subscribe((e=>{this.formatAndForwardMeasuredImpression(e)})),t.onUnload((e=>this.formatAndForwardMeasuredImpressionForBeacon(e))))}formatAndForwardAuction(e){const t=[];e.bidRequests.forEach((e=>{t.push({bidId:h(e),bidderCode:e.bidderCode,state:e.state,source:e.source,tags:0===e.tags.size?void 0:Array.from(e.tags),cpm:p(e)?e.cpm:void 0,currency:p(e)?e.currency:void 0,size:p(e)?e.size:void 0,customFields:e.customFields,timeToRespond:e.timeToRespond,rejectionReason:e.rejectionReason,dealId:p(e)?e.dealId:void 0,advertiserDomains:p(e)?e.advertiserDomains:void 0,bidNetRevenue:p(e)?e.bidNetRevenue:void 0})}));const i=void 0===e.userConsentState?"notAvailable":e.userConsentState,s=void 0===e.userConsentVersion?"notAvailable":e.userConsentVersion,n={auctionId:e.auctionId,adUnit:e.adUnit.name,adUnitPath:e.adUnit.path,sizes:Array.from(e.sizes),tags:0===e.tags.size?void 0:Array.from(e.tags),refresh:e.refresh,userConsentState:i,userConsentVersion:s,hasUserId:e.hasUserId,userIdProviderList:e.userIdProviderList,pbjsVersion:e.pbjsVersion,bidRequests:t,pubstackManaged:!1,pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank,customFields:e.customFields,duration:e.duration,timeout:e.timeout};this.auctionGateway.batchThenSend(n)}formatAndForwardImpression(e){const t={bidId:e.bidId,auctionId:e.auctionId,lastAuctionId:e.lastAuctionId,adUnit:e.adUnit.name,adUnitPath:e.adUnit.path,bidderCode:e.bidderCode,cpm:e.cpm,currency:e.currency,refresh:e.refresh,size:e.size,userConsentState:e.userConsentState,userConsentVersion:e.userConsentVersion,hasUserId:e.hasUserId,userIdProviderList:e.userIdProviderList,pbjsVersion:e.pbjsVersion,cpmUplift:e.cpmUplift,dealId:e.dealId,advertiserDomains:e.advertiserDomains,tags:Array.from(e.tags),viewabilityMeasurable:e.viewabilityMeasurable,pubstackManaged:!1,pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank,customFields:e.customFields,bidNetRevenue:e.bidNetRevenue,source:e.source};this.impressionGateway.batchThenSend(t)}formatAndForwardViewability(e){const t={bidId:e.bidId,auctionId:e.auctionId,lastAuctionId:e.lastAuctionId,adUnit:e.adUnit.name,adUnitPath:e.adUnit.path,bidderCode:e.bidderCode,pbjsVersion:e.pbjsVersion,cpm:e.cpm,currency:e.currency,size:e.size,refresh:e.refresh,htmlElementId:e.htmlElementId,mrcViewable:!0,pubstackManaged:!1,pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank};this.viewabilityGateway.batchThenSend(t)}formatAndForwardMeasuredImpression(e){const t={bidId:e.bidId,auctionId:e.auctionId,lastAuctionId:e.lastAuctionId,adUnit:e.adUnit.name,adUnitPath:e.adUnit.path,bidderCode:e.bidderCode,cpm:e.cpm,currency:e.currency,refresh:e.refresh,size:e.size,pbjsVersion:e.pbjsVersion,viewedTime:e.viewedTime,pubstackManaged:!1,pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank};this.measuredImpressionGateway.batchThenSend(t)}formatAndForwardMeasuredImpressionForBeacon(e){const t=e.map((e=>({bidId:e.bidId,auctionId:e.auctionId,lastAuctionId:e.lastAuctionId,adUnit:e.adUnit.name,adUnitPath:e.adUnit.path,bidderCode:e.bidderCode,cpm:e.cpm,currency:e.currency,refresh:e.refresh,size:e.size,pbjsVersion:e.pbjsVersion,viewedTime:e.viewedTime,pubstackManaged:!1,pubstackRefresh:e.pubstackRefresh,pubstackRefreshRank:e.pubstackRefreshRank})));this.measuredImpressionBeaconGateway.send(t)}sendError(e){this.errorGateway.batchThenSend(e)}sendLog(e){this.traceGateway.batchThenSend(e,!1)}sendToDatadog(e){var t;if(void 0===e.error||""===e.error)return;const i=e.error,s=null!==(t=e.context)&&void 0!==t?t:{};S(s),C(i);const n=Object.assign(Object.assign({pageId:Qe,status:"error",domain:Pe(window.location),href:_e(window.location)},s),{message:i}),o=new XMLHttpRequest;o.open("POST","https://browser-http-intake.logs.datadoghq.com/v1/input/pub551f730416e5317842afc2792691e95c?ddsource=browser&ddtags=version:1.3.2",!0),o.setRequestHeader("Content-Type","text/plain"),o.send(JSON.stringify(n))}}const Ke=(e,t)=>{const i=new XMLHttpRequest;i.open("POST",e,!0),i.setRequestHeader("Content-Type","text/plain"),i.send(JSON.stringify(t)),d("post",e,t)},Xe=(e,t)=>{const i=JSON.stringify(t);navigator.sendBeacon(e,i),d("beacon",e,t)},Ze=(e,t)=>{if(!e||!t)throw new Error("IllegalArgumentException");return`${e}_${t}`},et=20;function tt(){const e="pbstck",t=new Map;ie(e).forEach((i=>{const s=se(i.name,e);t.has(s)&&c(`Custom dim ${s} is present many times`),t.size<et?t.set(s,i.content):c(`Skipping custom dim ${s} with ${i.content}: limit of ${et} keys exceeded`)}));const i=Object.assign({},...Array.from(t.entries()).map((([e,t])=>({[e]:t}))));return t.size>0&&d("Custom dim found :",i),i}const it=e=>{const t=[];return JSON.parse(JSON.stringify(e,((e,i)=>{if("object"==typeof i&&null!==i){if(t.includes(i))return;t.push(i)}return i})))},st=(e,t)=>{const i=Se(),s=new me(void 0),n=Re(i,s,"sdk");t.bindIntegration(s),e.subscribe((([e,[t]])=>{try{n.on(e,t)}catch(e){e.context=e.context||{},e.context.pbjs={source:"sdk:pbjs"},D(e)}}))},nt=(e,t,i)=>{const s=e;s[i]=s[i]||[];const n=s[i];e.pbstck=e.pbstck||{},e.pbstck.sdk=e.pbstck.sdk||{},e.pbstck.sdk[t]=e.pbstck.sdk[t]||{p:[],q:n},e.pbstck.sdk[t].p=e.pbstck.sdk[t].p||[],e.pbstck.sdk[t].q=e.pbstck.sdk[t].q||n,e.pbstck.sdk[t].q!==n&&(e.pbstck.sdk[t].q=e.pbstck.sdk[t].q.concat(n));const o={cmd:(...i)=>{const s=["cmd",i];(e.pbstck.sdk[t].q||[]).push(s),(e.pbstck.sdk[t].p||[]).forEach((e=>e(s)))}};return e.Pubstack=o,o};function ot(e,t,i){const s=new B,n=[];nt(e,i.tagId,i.globalQueue);const o=e[i.globalQueue],r=t=>{!function(e,t){if(void 0!==e)throw new f(null!=t?t:`Expected value to be undefined, but received ${e}`)}(Object.values(e.pbstck.sdk).find((t=>t!==e.pbstck.sdk[i.tagId]&&t.q===o)),`Concurrency on '${i.globalQueue}' globalQueue (more than 1 destination configured)`),s.next([t[0],it(Object.values(t[1]))])};return s.subscribe(((...e)=>n.push(e))),st(s.pipe(...N(/cmd/)).pipe(...N(/pbjs|prebid/)),t),{debug:()=>({events:n}),dispatchEvents:()=>{e.pbstck.sdk[i.tagId].q.forEach(r),e.pbstck.sdk[i.tagId].p.push(r)}}}const rt={CALL:"call",AD_CALLBACK:"pbstck:ad"};const at=()=>({toAd(e,t){S(e),A(t,"toAd: id is undefined"),A(e.formatId,"toAd: formatId is undefined"),C(t),function(e,t,i){if(!U(e,t))throw new f(`Expected object to have key '${t}', but not found`)}(e,"formatId");const i="string"==typeof e.size?e.size:"unknown";return{cpm:y(e.cpm)?e.cpm:0,size:i,formatId:y(e.formatId)?e.formatId.toString():e.formatId}}});const dt=new WeakSet;function ct(e,t,i){const s=e[i.globalName];if(void 0===s||!s.__smartLoaded)return{status:l.NOT_READY};const n=at(),o=new fe,r=function(e,t){return{on(i,s,n){d("sas.dispatcher",i,s),i===rt.AD_CALLBACK&&t.onAd(e.toAd(s,n))}}}(n,o);t.bindIntegration(o);const a=[];if(dt.has(s))return{status:l.LOADED};dt.add(s);const c=Object.values(rt);return c.forEach((e=>{s.events.on(e,((t,i)=>{const s=it(t);a.push({eventName:e,data:s,id:i});try{r.on(e,s,i)}catch(e){e.context=e.context||{},e.context.adapter={source:"sas:on"},D(e)}}))})),s.events.history().filter((({eventName:e})=>c.includes(e))).map(it).forEach((({eventName:e,data:t,id:i})=>{const s=it(t);a.push({eventName:e,data:s,id:i});try{r.on(e,t,i)}catch(e){e.context=e.context||{},e.context.adapter={source:"sas:replayed"},D(e)}})),{status:l.LOADED,instance:{debug:()=>({events:a})}}}const ut=new B;function lt(e,i,s){var n;e.pbstck=e.pbstck||{lock:{}},e.pbstck.lock=e.pbstck.lock||{},e.pbstck.scopeId=s.scopeId,e.pbstck.tagId=s.tagId;const o={},r=`${s.tagId}@${i.gateway}@collector`;if(function(e,t){return e[t]}(e.pbstck.lock,r))return;!function(e,t){e[t]=!0}(e.pbstck.lock,r);const c=new ye;let l;o.core=c,i.viewabilityEnabled&&(l=new xe(c,e),o.viewability=l);const b=new Ye(i.gateway,s,c,l,i.abTestValues);var p;o.intake=b,$((e=>b.sendError(e)),1),p=e=>b.sendLog(e),ut.subscribe(p),function(e){V.subscribe(e)}((e=>b.sendToDatadog(e)));const h=new Promise(((s,n)=>{if(i.pbjsVariableName){d("Prebid dropin mode",i.pbjsVariableName);const r={debug:a(),globalName:i.pbjsVariableName},l=function(e,t){return e[t.globalName]||(e[t.globalName]={}),e[t.globalName].que||(e[t.globalName].que=[]),e[t.globalName].que}(e,r);l.push((()=>t(this,void 0,void 0,(function*(){var t,i;const a=e[r.globalName],l=null!==(t=Number(a.getConfig("timeoutBuffer")))&&void 0!==t?t:Ue,b=null===(i=a.getConfig("currency"))||void 0===i?void 0:i.adServerCurrency;let p;I(b)&&(p=b);const h=new me({version:a.version,gracePeriod:l,adServerCurrency:p,pbjsVariableName:r.globalName});o.prebid=h;try{o.prebid=function(e,t,i,s){const n=e[s.globalName];i.bindIntegration(t);const o=Re(Se(),t);let r;if(null!=n.getEvents)d("[pbjsIntegration] retrieve pbjs events using getEvents on public API"),r=n.getEvents;else{d("[pbjsIntegration] retrieve pbjs events using chunk");const t=e[`${s.globalName}Chunk`];if(void 0===t)throw new Error("[pbjsIntegration] unable to find pbjs chunk");const i=ke(t,{on:Function,getEvents:Function});if(void 0===i)throw new Error("[pbjsIntegration] unable to use event handler on adapter");r=i.getEvents}return Object.values(we).forEach((e=>{n.onEvent(e,(t=>{var i;try{o.on(e,t)}catch(s){u("[pbjsIntegration] Error on event "+e+": "+s.message,t),q({context:Object.assign(Object.assign({},null!==(i=s.context)&&void 0!==i?i:{}),{adapter:{version:n.version,source:"pbjs:on"}}),message:s.message})}}))})),r().forEach((({eventType:e,args:t})=>{var i;try{o.on(e,t)}catch(s){u("[pbjsIntegration] Error on event "+e+": "+s.message,t),q({context:Object.assign(Object.assign({},null!==(i=s.context)&&void 0!==i?i:{}),{adapter:{version:n.version,source:"pbjs:replayed"}}),message:s.message})}})),t}(e,h,c,r),s()}catch(e){return u("Unable to load pbjs integration due to",e),void n()}}))))}}));let v,m=[];if(i.smartEnabled||i.debug){const t={debug:a(),globalName:"sas"};m=function(e,t){return e[t.globalName]||(e[t.globalName]={}),e[t.globalName].cmd||(e[t.globalName].cmd=[]),e[t.globalName].cmd}(e,t),m.push((()=>{v=ct(e,c,t).instance}))}const f={tagId:s.tagId,globalQueue:i.sdk.globalQueue},g=ot(e,c,f);if(g.dispatchEvents(),i.debug||a()){c.subscribe({onAuction:e=>d("controller.onAuction",e),onImpression:e=>d("controller.onImpression",e)});const t=new Me(c);o.debug=t,$((e=>t.addError(e)),1e3),e.pbstck.debug=e.pbstck.debug||{},e.pbstck.debug[r]={getEvents:()=>t.getEvents(),getErrors:()=>t.getErrors(),sdk:null!==(n=null==g?void 0:g.debug())&&void 0!==n?n:void 0},(i.smartEnabled||i.debug)&&m.push((()=>{v&&(e.pbstck.debug[r].sas=v.debug())}))}return Promise.resolve().finally(),e.pbstck.controllers=e.pbstck.controllers||{},e.pbstck.controllers[`${i.gateway}@collector`]=o,h.then((()=>{e.dispatchEvent(new Event(Ze(`${i.gateway}@collector`,"pubstackMonitoringReady")))})),c}e.bootPubstack=lt,e.pubstackAutoconfig=function(e){var i,s,n,o;const r={gateway:null===(i=e.endpoint)||void 0===i?void 0:i.gateway,sdk:{globalQueue:"pbstckQ"},debug:!0===e.debug,viewabilityEnabled:e.viewabilityEnabled,smartEnabled:null!==(s=e.smartEnabled)&&void 0!==s&&s,refreshConfigurationUrl:null!==(n=e.refreshConfigurationUrl)&&void 0!==n?n:"",pbjsVariableName:e.pbjsVariableName||"pbjs",abTestValues:e.abTestValues};if(void 0===r.gateway)return;const a={tagId:e.tagId,scopeId:e.scopeId,country:e.country,device:e.device,browserName:e.browserName,browserVersion:e.browserVersion,osName:e.osName,osVersion:e.osVersion,pbstckVersion:null!==(o="53e3df7")?o:"unknown",customFields:tt()};t(void 0,void 0,void 0,(function*(){try{return navigator&&navigator.cookieDeprecationLabel&&navigator.cookieDeprecationLabel.getValue&&(yield navigator.cookieDeprecationLabel.getValue())||void 0}catch(e){d("Error while getting cookie depreciation label",e)}})).then((e=>{e&&(a.customFields.cdep=e)})),a.tagId&&a.scopeId&&lt(window,r,a)}}(this.collector=this.collector||{});
+;
+ return this;}.bind({}); var _ = load();_.collector.pubstackAutoconfig({"endpoint":{"script":"https://cdn.pbstck.com/collector-53e3df7.js","gateway":"https://intake.pbstck.com/v1/intake"},"scopeId":"f739a1df-86bf-4ffb-99bf-5f8e591e8b11","tagId":"80ef5de8-0cf4-4c0c-9048-b227ad8a8701","viewabilityEnabled":true,"refreshEnabled":false,"smartEnabled":false,"pbjsVariableName":"pbjs","abTestValues":["prebid_47","prebid_48"],"bootstrapTime":1717791803767,"bootstrapVersion":"undefined","device":"desktop","browserName":"Firefox","browserVersion":"126","osName":"Windows","osVersion":"10","country":"US"}); })()</script><script type="text/javascript">(function() { var load = function() {!function(e){"use strict";const t=/pbstck:debug/.test(window.location.href),n=!!window.localStorage.getItem("pbstck"),o=(e,o,...r)=>{(t||n)&&console[e](`[pbstckUserSessions-aadee70] [${performance.now().toFixed(2)}] ${o}`,...r.length?r:"")},r=(e,...t)=>{o("warn",e,...t)},i=(e,...t)=>{o("log",e,...t)},a=(e,...t)=>{o("error",e,...t)},s=["pbstck:","pbstck_context:"],c=()=>{const e=document.getElementsByTagName("meta"),t=Array.from(e).filter((e=>d(s,e.name))),n=new Map;t.forEach((e=>{const t=u(e.name);n.has(t)&&r(`Custom dim ${t} is present many times`),n.size<20?n.set(t,e.content):r(`Skipping custom dim ${t} with ${e.content}: limit of 20 keys exceeded`)}));const o=Object.assign({},...Array.from(n.entries()).map((([e,t])=>({[e]:t}))));return n.size>0&&i("Custom dim found :",o),o},u=e=>e.replace(/^\w+:/,""),d=(e,t)=>e.some((e=>t.startsWith(e)));var m,p;!function(e){e.HISTORY_MUTATION="_pbstck_historyMutation",e.NEW_PAGE="_pbstck_pageView",e.SESSION_TRACKING_AUTHORIZED="_pbstck_sessionTrackingAuthorized",e.SESSION_TRACKING_DECLINED="_pbstck_sessionTrackingDeclined"}(m||(m={})),function(e){e.REPLACE_STATE="replaceState",e.PUSH_STATE="pushState"}(p||(p={}));const f=e=>{window.history[e]=new Proxy(window.history[e],{apply(t,n,o){const r=window.location.href,i=t.apply(n,o),a=new CustomEvent(m.HISTORY_MUTATION,{detail:{referrer:r,stateObj:o[0],title:o[1],url:o[2],type:e}});return dispatchEvent(a),i}})};let l;const g=new Uint8Array(16);function v(){if(!l&&(l="undefined"!=typeof crypto&&crypto.getRandomValues&&crypto.getRandomValues.bind(crypto),!l))throw new Error("crypto.getRandomValues() not supported. See https://github.com/uuidjs/uuid#getrandomvalues-not-supported");return l(g)}const h=[];for(let e=0;e<256;++e)h.push((e+256).toString(16).slice(1));var w={randomUUID:"undefined"!=typeof crypto&&crypto.randomUUID&&crypto.randomUUID.bind(crypto)};function y(e,t,n){if(w.randomUUID&&!t&&!e)return w.randomUUID();const o=(e=e||{}).random||(e.rng||v)();if(o[6]=15&o[6]|64,o[8]=63&o[8]|128,t){n=n||0;for(let e=0;e<16;++e)t[n+e]=o[e];return t}return function(e,t=0){return h[e[t+0]]+h[e[t+1]]+h[e[t+2]]+h[e[t+3]]+"-"+h[e[t+4]]+h[e[t+5]]+"-"+h[e[t+6]]+h[e[t+7]]+"-"+h[e[t+8]]+h[e[t+9]]+"-"+h[e[t+10]]+h[e[t+11]]+h[e[t+12]]+h[e[t+13]]+h[e[t+14]]+h[e[t+15]]}(o)}const T=e=>{window.__pbstck_consent=e},E=e=>{window.__pbstck_session_tracking=e},S=()=>window.__pbstck_consent,b=()=>window.__pbstck_session_tracking,I=e=>{if("string"==typeof e){const t=e.split(/:\/\/(www.)?/g);return t.length<=1?null:t[t.length-1].split("/")[0]}const t=e.hostname;return t.startsWith("www.")?t.substring(4):t};var _;!function(e){e.DEV="dev",e.BETA="beta",e.PROD="prod"}(_||(_={}));class k extends Error{message="unknown session error"}class A extends k{message="session init error"}class C extends k{message="session parse error"}class N extends k{message="session not found error"}class D extends k{message="session obsolete error"}const L=Array(),O=(e,t)=>{const n=e.env===_.PROD?"":`_${e.env}`;return`_pbstck_session_${t.tagId.substring(0,8)}${n}`},P=e=>Date.now()-e>18e5,R=(e,t)=>{try{const o=localStorage.getItem(O(e,t));if(o){const e=JSON.parse(atob(o));if(n=e,L.every((e=>e in n)))return e;throw new C}throw new N}catch(e){if(e instanceof k)throw e;throw new C}var n},$=(e,t)=>{try{const n=R(e,t);return n.pageCount++,localStorage.setItem(O(e,t),btoa(JSON.stringify(n))),n.pageCount}catch(e){if(e instanceof k)throw e;throw new k}},U=(e,t)=>{const n=new URL(window.location.href),o={id:y(),lastUpdateTimeMs:Date.now(),pageCount:0,lastUrlVisited:window.location.href,utmSource:n.searchParams.get("utm_source")||null,utmCampaign:n.searchParams.get("utm_campaign")||null,utmContent:n.searchParams.get("utm_content")||null,utmTerm:n.searchParams.get("utm_term")||null,utmMedium:n.searchParams.get("utm_medium")||null};try{localStorage.setItem(O(e,t),btoa(JSON.stringify(o)))}catch(e){throw new A}},M=[],V=(e,t)=>{const n=M.map((n=>H(n,e,t)));if(n.length){const o=JSON.stringify(n),r=`${e.gateway}/page?${(()=>{const e=document.querySelector('meta[name="pbstck:kleanads-version"]')?.getAttribute("content")??"none",n=document.querySelector('meta[name="pbstck:config-version"]')?.getAttribute("content")??"none";return`tId=${t.tagId}&v=${e}&s=${n}&c=1`})()}`;navigator.sendBeacon&&navigator.sendBeacon(r,o)||fetch(r,{body:o,method:"POST",keepalive:!0}),i("[page] event queue dispatched",JSON.stringify(n)),M.length=0}},x=(e,t,n)=>{try{const r=F(t,n);try{const n=R(e,t);P(n.lastUpdateTimeMs)&&V(e,t)}catch(e){i("[page] session was not found or invalid, adding the new page to the queue anyway")}(o=r,M.push(o),i("[page] event queued",o),M.length)>=20&&V(e,t)}catch(e){e instanceof k?a(`[page] new page : ${e.message}`):a("[page] unknown error",e)}var o},B=(e,t)=>{x(e,t),window.addEventListener(m.SESSION_TRACKING_AUTHORIZED,(n=>{i(`[page] ${m.SESSION_TRACKING_AUTHORIZED}`,n);try{((e,t)=>{try{const n=R(e,t);if(P(n.lastUpdateTimeMs))throw new D;n.lastUpdateTimeMs=Date.now(),n.lastUrlVisited=window.location.href,localStorage.setItem(O(e,t),btoa(JSON.stringify(n)))}catch(n){if(n instanceof N||n instanceof C)return void U(e,t);if(n instanceof k)throw n;throw new k}})(e,t),V(e,t)}catch(n){n instanceof D&&(U(e,t),V(e,t))}})),window.addEventListener(m.SESSION_TRACKING_DECLINED,(n=>{i(`[page] ${m.SESSION_TRACKING_DECLINED}`,n),((e,t)=>{try{localStorage.removeItem(O(e,t))}catch(e){}})(e,t),V(e,t)})),window.addEventListener(m.HISTORY_MUTATION,(n=>{i(`[page] ${m.HISTORY_MUTATION}`,n),n.detail?.referrer.href!==window.location.href&&x(e,t,n.detail?.referrer)})),window.addEventListener("popstate",(n=>{x(e,t)})),window.document.addEventListener("visibilitychange",(()=>{i(`[page] visibility changed to ${document.visibilityState}`),"visible"!==document.visibilityState&&V(e,t)})),window.addEventListener("pagehide",(()=>{V(e,t)})),window.addEventListener("beforeunload",(()=>{V(e,t)}))},F=(e,t)=>{const n=new URL(window.location.href);return{...e,pageId:G(),pageCount:1,domain:I(window.location)??"",href:(o=window.location,o&&o.protocol&&o.host&&o.pathname?`${o.protocol}//${o.host}${o.pathname}`:"unknown"),referrer:I(t??document.referrer),consent:S(),userSessionId:null,sessionTracking:b(),utmSource:n.searchParams.get("utm_source"),utmCampaign:n.searchParams.get("utm_campaign"),utmContent:n.searchParams.get("utm_content"),utmTerm:n.searchParams.get("utm_term"),utmMedium:n.searchParams.get("utm_medium")};var o},H=(e,t,n)=>{try{const o=b();return{...e,pageCount:o?$(t,n):e.pageCount,userSessionId:o?R(t,n).id:null,consent:S(),sessionTracking:o,utmSource:o?R(t,n).utmSource:e.utmSource,utmCampaign:o?R(t,n).utmCampaign:e.utmCampaign,utmContent:o?R(t,n).utmContent:e.utmContent,utmTerm:o?R(t,n).utmTerm:e.utmTerm,utmMedium:o?R(t,n).utmMedium:e.utmMedium}}catch(t){if(t instanceof N)return e;t instanceof k?a(`[session] ${t.message}`):a("[session] unknown error",t)}return e},G=()=>{const e=y();return window.__pbstck_page_id=e,e};var q;!function(e){e[e.DENIED=0]="DENIED",e[e.GRANTED=1]="GRANTED",e[e.UNAVAILABLE=2]="UNAVAILABLE"}(q||(q={}));const K=async(e,t)=>{T(q.UNAVAILABLE),E(!1);let n=0;try{(await j(e))("addEventListener",2,(o=>{if(o){if("tcloaded"===o.eventStatus||"useractioncomplete"===o.eventStatus){T(Y(o));const e=Z(o)&&!t.sessionTrackingDisabled;E(e),e?dispatchEvent(new CustomEvent(m.SESSION_TRACKING_AUTHORIZED)):dispatchEvent(new CustomEvent(m.SESSION_TRACKING_DECLINED))}}else i(`[consent] wrong tcdata ${o}, waiting 200ms`),setTimeout((()=>{n++,100===n&&r("[consent] unable to retrieve cmp after 100 tries"),K(e,t)}),200)}))}catch(e){a("[consent] Error while loading tcf api")}},J=(e,t,n)=>{if(e.__tcfapi){const o=e.__tcfapi;(e=>"function"==typeof e)(e.__tcfapi)?t(o):n("__tcfapi is not a function")}else setTimeout((()=>J(e,t,n)),100)},j=e=>new Promise(((t,n)=>J(e,t,n))),Y=e=>e.purpose.consents&&e.purpose.consents[1]&&e.purpose.consents[2]&&e.purpose.consents[3]&&e.purpose.consents[4]&&e.purpose.consents[7]?q.GRANTED:q.DENIED,Z=e=>e.purpose.consents[1]&&e.purpose.consents[7]&&e.purpose.consents[8]?(i("[consent] SessionTracking obtained"),!0):(i("[consent] SessionTracking declined"),!1);var z,W,Q,X,ee,te=-1,ne=function(e){addEventListener("pageshow",(function(t){t.persisted&&(te=t.timeStamp,e(t))}),!0)},oe=function(){return window.performance&&performance.getEntriesByType&&performance.getEntriesByType("navigation")[0]},re=function(){var e=oe();return e&&e.activationStart||0},ie=function(e,t){var n=oe(),o="navigate";return te>=0?o="back-forward-cache":n&&(document.prerendering||re()>0?o="prerender":document.wasDiscarded?o="restore":n.type&&(o=n.type.replace(/_/g,"-"))),{name:e,value:void 0===t?-1:t,rating:"good",delta:0,entries:[],id:"v3-".concat(Date.now(),"-").concat(Math.floor(8999999999999*Math.random())+1e12),navigationType:o}},ae=function(e,t,n){try{if(PerformanceObserver.supportedEntryTypes.includes(e)){var o=new PerformanceObserver((function(e){Promise.resolve().then((function(){t(e.getEntries())}))}));return o.observe(Object.assign({type:e,buffered:!0},n||{})),o}}catch(e){}},se=function(e,t,n,o){var r,i;return function(a){t.value>=0&&(a||o)&&((i=t.value-(r||0))||void 0===r)&&(r=t.value,t.delta=i,t.rating=function(e,t){return e>t[1]?"poor":e>t[0]?"needs-improvement":"good"}(t.value,n),e(t))}},ce=function(e){requestAnimationFrame((function(){return requestAnimationFrame((function(){return e()}))}))},ue=function(e){var t=function(t){"pagehide"!==t.type&&"hidden"!==document.visibilityState||e(t)};addEventListener("visibilitychange",t,!0),addEventListener("pagehide",t,!0)},de=function(e){var t=!1;return function(n){t||(e(n),t=!0)}},me=-1,pe=function(){return"hidden"!==document.visibilityState||document.prerendering?1/0:0},fe=function(e){"hidden"===document.visibilityState&&me>-1&&(me="visibilitychange"===e.type?e.timeStamp:0,ge())},le=function(){addEventListener("visibilitychange",fe,!0),addEventListener("prerenderingchange",fe,!0)},ge=function(){removeEventListener("visibilitychange",fe,!0),removeEventListener("prerenderingchange",fe,!0)},ve=function(){return me<0&&(me=pe(),le(),ne((function(){setTimeout((function(){me=pe(),le()}),0)}))),{get firstHiddenTime(){return me}}},he=function(e){document.prerendering?addEventListener("prerenderingchange",(function(){return e()}),!0):e()},we=[1800,3e3],ye=function(e,t){t=t||{},he((function(){var n,o=ve(),r=ie("FCP"),i=ae("paint",(function(e){e.forEach((function(e){"first-contentful-paint"===e.name&&(i.disconnect(),e.startTime<o.firstHiddenTime&&(r.value=Math.max(e.startTime-re(),0),r.entries.push(e),n(!0)))}))}));i&&(n=se(e,r,we,t.reportAllChanges),ne((function(o){r=ie("FCP"),n=se(e,r,we,t.reportAllChanges),ce((function(){r.value=performance.now()-o.timeStamp,n(!0)}))})))}))},Te=[.1,.25],Ee={passive:!0,capture:!0},Se=new Date,be=function(e,t){z||(z=t,W=e,Q=new Date,ke(removeEventListener),Ie())},Ie=function(){if(W>=0&&W<Q-Se){var e={entryType:"first-input",name:z.type,target:z.target,cancelable:z.cancelable,startTime:z.timeStamp,processingStart:z.timeStamp+W};X.forEach((function(t){t(e)})),X=[]}},_e=function(e){if(e.cancelable){var t=(e.timeStamp>1e12?new Date:performance.now())-e.timeStamp;"pointerdown"==e.type?function(e,t){var n=function(){be(e,t),r()},o=function(){r()},r=function(){removeEventListener("pointerup",n,Ee),removeEventListener("pointercancel",o,Ee)};addEventListener("pointerup",n,Ee),addEventListener("pointercancel",o,Ee)}(t,e):be(t,e)}},ke=function(e){["mousedown","keydown","touchstart","pointerdown"].forEach((function(t){return e(t,_e,Ee)}))},Ae=[100,300],Ce=0,Ne=1/0,De=0,Le=function(e){e.forEach((function(e){e.interactionId&&(Ne=Math.min(Ne,e.interactionId),De=Math.max(De,e.interactionId),Ce=De?(De-Ne)/7+1:0)}))},Oe=function(){return ee?Ce:performance.interactionCount||0},Pe=function(){"interactionCount"in performance||ee||(ee=ae("event",Le,{type:"event",buffered:!0,durationThreshold:0}))},Re=[200,500],$e=0,Ue=function(){return Oe()-$e},Me=[],Ve={},xe=function(e){var t=Me[Me.length-1],n=Ve[e.interactionId];if(n||Me.length<10||e.duration>t.latency){if(n)n.entries.push(e),n.latency=Math.max(n.latency,e.duration);else{var o={id:e.interactionId,latency:e.duration,entries:[e]};Ve[o.id]=o,Me.push(o)}Me.sort((function(e,t){return t.latency-e.latency})),Me.splice(10).forEach((function(e){delete Ve[e.id]}))}},Be=[2500,4e3],Fe={},He=[800,1800],Ge=function e(t){document.prerendering?he((function(){return e(t)})):"complete"!==document.readyState?addEventListener("load",(function(){return e(t)}),!0):setTimeout(t,0)},qe=function(e,t){t=t||{};var n=ie("TTFB"),o=se(e,n,He,t.reportAllChanges);Ge((function(){var r=oe();if(r){var i=r.responseStart;if(i<=0||i>performance.now())return;n.value=Math.max(i-re(),0),n.entries=[r],o(!0),ne((function(){n=ie("TTFB",0),(o=se(e,n,He,t.reportAllChanges))(!0)}))}}))};function Ke(e,t,n,o){const r=()=>{const o=document.querySelector('meta[name="pbstck:kleanads-version"]')?.getAttribute("content")??"none",r=document.querySelector('meta[name="pbstck:config-version"]')?.getAttribute("content")??"none";return`${e.toLocaleLowerCase()}=${t.toFixed(3)}&tId=${n.tagId}&v=${o}&s=${r}&c=1`},i=b(),a=JSON.stringify([{...n,href:window.location.href,name:e,value:t,customFields:{...n.customFields,pageId:window.__pbstck_page_id,pageCount:String(i?R(o,n).pageCount:1),userSessionId:i?R(o,n).id:null,sessionTracking:String(i)}}]);navigator.sendBeacon&&navigator.sendBeacon(`${o.gateway}/web-vitals?${r()}`,a)||fetch(`${o.gateway}/web-vitals?${r()}`,{body:a,method:"POST",keepalive:!0})}const Je=(e,t)=>{!function(e,t){t=t||{},ye(de((function(){var n,o=ie("CLS",0),r=0,i=[],a=function(e){e.forEach((function(e){if(!e.hadRecentInput){var t=i[0],n=i[i.length-1];r&&e.startTime-n.startTime<1e3&&e.startTime-t.startTime<5e3?(r+=e.value,i.push(e)):(r=e.value,i=[e])}})),r>o.value&&(o.value=r,o.entries=i,n())},s=ae("layout-shift",a);s&&(n=se(e,o,Te,t.reportAllChanges),ue((function(){a(s.takeRecords()),n(!0)})),ne((function(){r=0,o=ie("CLS",0),n=se(e,o,Te,t.reportAllChanges),ce((function(){return n()}))})),setTimeout(n,0))})))}((n=>Ke("CLS",n.value,t,e))),ye((n=>Ke("FCP",n.value,t,e))),function(e,t){t=t||{},he((function(){var n,o=ve(),r=ie("LCP"),i=function(e){var t=e[e.length-1];t&&t.startTime<o.firstHiddenTime&&(r.value=Math.max(t.startTime-re(),0),r.entries=[t],n())},a=ae("largest-contentful-paint",i);if(a){n=se(e,r,Be,t.reportAllChanges);var s=de((function(){Fe[r.id]||(i(a.takeRecords()),a.disconnect(),Fe[r.id]=!0,n(!0))}));["keydown","click"].forEach((function(e){addEventListener(e,(function(){return setTimeout(s,0)}),!0)})),ue(s),ne((function(o){r=ie("LCP"),n=se(e,r,Be,t.reportAllChanges),ce((function(){r.value=performance.now()-o.timeStamp,Fe[r.id]=!0,n(!0)}))}))}}))}((n=>Ke("LCP",n.value,t,e))),function(e,t){t=t||{},he((function(){var n,o=ve(),r=ie("FID"),i=function(e){e.startTime<o.firstHiddenTime&&(r.value=e.processingStart-e.startTime,r.entries.push(e),n(!0))},a=function(e){e.forEach(i)},s=ae("first-input",a);n=se(e,r,Ae,t.reportAllChanges),s&&ue(de((function(){a(s.takeRecords()),s.disconnect()}))),s&&ne((function(){var o;r=ie("FID"),n=se(e,r,Ae,t.reportAllChanges),X=[],W=-1,z=null,ke(addEventListener),o=i,X.push(o),Ie()}))}))}((n=>Ke("FID",n.value,t,e))),function(e,t){t=t||{},he((function(){var n;Pe();var o,r=ie("INP"),i=function(e){e.forEach((function(e){e.interactionId&&xe(e),"first-input"===e.entryType&&!Me.some((function(t){return t.entries.some((function(t){return e.duration===t.duration&&e.startTime===t.startTime}))}))&&xe(e)}));var t,n=(t=Math.min(Me.length-1,Math.floor(Ue()/50)),Me[t]);n&&n.latency!==r.value&&(r.value=n.latency,r.entries=n.entries,o())},a=ae("event",i,{durationThreshold:null!==(n=t.durationThreshold)&&void 0!==n?n:40});o=se(e,r,Re,t.reportAllChanges),a&&("PerformanceEventTiming"in window&&"interactionId"in PerformanceEventTiming.prototype&&a.observe({type:"first-input",buffered:!0}),ue((function(){i(a.takeRecords()),r.value<0&&Ue()>0&&(r.value=0,r.entries=[]),o(!0)})),ne((function(){Me=[],$e=Oe(),r=ie("INP"),o=se(e,r,Re,t.reportAllChanges)})))}))}((n=>Ke("INP",n.value,t,e))),qe((n=>Ke("TTFB",n.value,t,e)))};e.pubstackAutoconfig=function(e){if(void 0===e.endpoint.gateway)return void a("[pbstckAutoconfig] no gateway url found in config");const t={gateway:e.endpoint.gateway,env:(n=e.endpoint.gateway,n.includes(_.DEV)?_.DEV:n.includes(_.BETA)?_.BETA:_.PROD),sessionTrackingDisabled:e.sessionTrackingDisabled??!1};var n;try{const n=window.top||window;n.pbstck=n.pbstck||{lock:{}},n.pbstck.lock=n.pbstck.lock||{};const o=`${e.tagId}@${t.env}@user-sessions`;if(n.pbstck.lock[o])return;n.pbstck.lock[o]=!0}catch(e){a("[pbstckAutoconfig] error while locking the integration",e)}const o={tagId:e.tagId,scopeId:e.scopeId,country:e.country,device:e.device,browserName:e.browserName,browserVersion:e.browserVersion,osName:e.osName,osVersion:e.osVersion,pbstckVersion:"aadee70",customFields:c()};o.tagId&&o.scopeId?(f(p.REPLACE_STATE),f(p.PUSH_STATE),(e=>{K(window,e)})(t),Je(t,o),B(t,o)):a("[pbstckAutoconfig] no tagId or scopeId found in context")}}(this.userSessions=this.userSessions||{});
+;
+ return this;}.bind({}); var _ = load();_.userSessions.pubstackAutoconfig({"endpoint":{"script":"https://cdn.pbstck.com/user-sessions-aadee70.js","gateway":"https://intake.pbstck.com/v1/intake"},"scopeId":"f739a1df-86bf-4ffb-99bf-5f8e591e8b11","tagId":"80ef5de8-0cf4-4c0c-9048-b227ad8a8701","sessionTrackingDisabled":true,"bootstrapTime":1717791803767,"bootstrapVersion":"undefined","device":"desktop","browserName":"Firefox","browserVersion":"126","osName":"Windows","osVersion":"10","country":"US"}); })()</script></head>
+	<body>
+		<script>
+			/* FIRST CALL */
+			window.addEventListener("load",pbjs.frameLoad);
+			/* OTHER CALLS */
+			window.addEventListener("message",function(event){
+				if(event.data !== "" && typeof event.data == "string" && event.data[0] == "{"){
+					var messagedata = JSON.parse(event.data);
+					pbdbg({message:["pbjs",showSection+"generic","got_message",messagedata]});
+					/* GET MESSAGE TO CALL */
+					if(typeof messagedata.name !== "undefined" && typeof messagedata.data !== "undefined" && typeof messagedata.type !== "undefined" && messagedata.type == "CALL"){
+						if(messagedata.name == "getAuctionForSlots" && typeof messagedata.data.slots !== "undefined"){
+							if(messagedata.data.maxWidth && Object.keys(messagedata.data.maxWidth).length !== 0) {
+								pbjs.resetGlobalConfig();
+								for (var maxWidthTagId in messagedata.data.maxWidth) {
+									if(pbjs.globalConfig.slots.hasOwnProperty(maxWidthTagId)) {
+										pbjs.globalConfig.slots[maxWidthTagId].forEach(function (singleSlot) {
+											if(singleSlot.mediaTypes && singleSlot.mediaTypes.hasOwnProperty("banner")) {
+												singleSlot.mediaTypes.banner.sizes = singleSlot.mediaTypes.banner.sizes.filter(function (elemSize) {
+													if(elemSize[0] > messagedata.data.maxWidth[maxWidthTagId]){
+														pbdbg({message:["pbjs",showSection+maxWidthTagId,"remove_bannersizes","maxwidth:"+messagedata.data.maxWidth[maxWidthTagId]+"|bannersize:"+elemSize[0]]});
+													}
+													return elemSize[0] <= messagedata.data.maxWidth[maxWidthTagId];
+												});
+											}
+											if(singleSlot.amazon && singleSlot.params) {
+												singleSlot.params.sizes = singleSlot.params.sizes.filter(function (elemSize) {
+													return elemSize[0] <= messagedata.data.maxWidth[maxWidthTagId];
+												});
+											}
+										});
+									}
+								}
+							}
+							//pbjs.customTime.startTime = (new Date()).getTime();
+							//console.log("pbjs",messagedata.data.slots,pbjs.globalConfig.initial);
+							if(/*!pbjs.globalConfig.params.hasOwnProperty("int") && *//*pbjs.globalConfig.params.category != "mail" && pbjs.globalConfig.params.category != "magazine" && pbjs.globalConfig.params.category != "partnernews" && (messagedata.data.slots.length == pbjs.globalConfig.initial.length) && */!pbjs.firstMessage.nextAllowed && messagedata.data.slots.every(function(element,index){return element === pbjs.globalConfig.initial[index];})){
+								pbdbg({message:["pbjs",showSection+messagedata.data.slots.toString(),"already_loaded_by_initial"]});
+								/*var json_message = {};
+								for(var tempslot in messagedata.data.slots){
+									json_message[messagedata.data.slots[tempslot]] = {};
+								}
+								/* temp fix */// json_message = pbjs.firstMessage === null || pbjs.globalConfig.params.hasOwnProperty("int") ? json_message : pbjs.firstMessage;
+								//parent.postMessage(JSON.stringify({"type":"CALL","name":'setAuctionResult',"data":json_message}), '*');
+								//pbdbg({message:["pbjs","generic","postmessage",JSON.stringify(json_message)]});
+							} else {
+								pbdbg({message:["pbjs",showSection+messagedata.data.slots.toString(),"load_new_groups"]});
+								pbjs.createCall(messagedata.data.slots,messagedata.data.refresh);
+							}
+						} else if(messagedata.name == "auctionSuccess" && typeof messagedata.data.slot !== "undefined" && typeof messagedata.data.type !== "undefined"){
+							pbdbg({message:["pbjs",messagedata.data.slot+'::'+messagedata.data.type,"success"]});
+							pbjs.wonBids[messagedata.data.slot] = messagedata.data.type;
+							/*if(pbjs.globalConfig.hasOwnProperty('aliasSlots') && pbjs.globalConfig.aliasSlots.hasOwnProperty(messagedata.data.slot)){
+								for(var alias in pbjs.globalConfig.aliasSlots[messagedata.data.slot]){
+									pbdbg({message:["pbjs",pbjs.globalConfig.aliasSlots[messagedata.data.slot][alias]+'::from_alias_'+messagedata.data.slot+'::'+messagedata.data.type,"success"]});
+									pbjs.wonBids[pbjs.globalConfig.aliasSlots[messagedata.data.slot][alias]] = messagedata.data.type;
+								}
+							}*/
+							if(typeof Pubstack != "undefined"){
+								Pubstack.cmd('prebid', 'bidWon', { adId: pbjs.pubStackwonBids[messagedata.data.slot] });
+							}
+						}
+					}
+				}
+			});
+		</script>
+	
+<iframe src="logic_pbjs_data/syncframe.htm" width="0" height="0" frameborder="0" style="border-width: 0px; margin: 0px; display: none;" title="Criteo GUM iframe"></iframe><iframe src="logic_pbjs_data/2x2.htm"></iframe><iframe style="display: none;" src="https://s.amazon-adsystem.com/iu3?cm3ppd=1&amp;d=dtb-pub&amp;csif=t&amp;gdpr=1&amp;gdpr_consent=CP_1wcAP_1wcAAcABBENA3EkAP_gAAAAAAYgJmoV9H7fbXFjcX53aftkeY0X1dB76sQhBhTAk-AFzJuQ8JwG12EyMATApqACERIAolZBIQMEHABUAFCAYIAFAQDMIkSUoAAKICBEABEQAAIQAAoKEgIAEAAIgEBHIhUAmBiQ6dLkxciACIAAB0AYgoABCIABAgMBBEAIQBAIAIIIwygAAQBAAIIAAAAAARAIAABBQAAAIAEAAAHgAAAMCQNgAEAALgAoACoAHAAPAAggBkAGoAPAAiABMACqAG8APQAfgBCQCGAIgARwAlgBNADAAGGAMsAc8A7gDvAHtAPsA_QCKAEYAI1ASIBJQC5gGKANoAbgA4gCHYEegSIAnYBQ4CjwFIgLYAXmAwYBhsDIwMkAZnA1gDWQG5gOCAeOBDkCRUEywTMCADgAHAAkACOAJwAg4BHACaAJWAVCAv8BiwDIQH7gTNHAHQAEAAOAAuACQAH4ARwA0ACOAHIAOiAg4CEAERAI4ATQBCACVgFQgLUAXQAv8BggDFgGQwP2A_cCN4EhAJhgTLAmaOgfAALgAoACoAHAAQAAugBkAGoAPAAiABMACrAFwAXQAxABvAD0AH6AQwBEACWAE0AJwAUYAwABhgDRAHPAO4A7wB7QD7AP2AigCLAEYgI6AkoBYgC5gF5AMUAbQA3ABxADqAIdARfAj0CRAE7AKHAUfAtgC2QFugLzAYMAw2BkYGSAMqAZYAzMBrADiwHjgPrAf2BAECHIEigJmEABYACAA0ADkAI4AWIBggD9gIZgRvAmGBM0hAZAAWABQAFwANQAmABVAC4AGIAN4AegBHADAAHPAO4A7wCKAEpALmAYoA2gB1AEegMjAeOA_sCRRKA8AAgABYAFAAOAA8ACIAEwAKoAXAAxQCGAIgARwAowBgADvAH4AXMAxQB1AEOgIvgR6BIgCjwFsALzgZGBkgDWAIAgSKgmWCZhIAYABcAI4A7gCDgEcASsAv8BiwDLAH7gQzAmaUALAAKAAuACQAFwARwBHACcAHIAO4AfYBBwCxAF1ANeAdsA_4C6AGCAMWgfsB-4EywJmlIFwAC4AKAAqABwAEEAMgA1AB4AEQAJgAUgAqgBiAD9AIYAiABRgDAAGiAOcAd8A_AD9AIsARiAjoCSgFzALyAYoA2gBuADqAIdARfAj0CRAE7AKHAWwAvMBhsDIwMkAZZA1gDWQHBAPHAf2BDMCHIEigJmFoA4ANQBHADAAHcAzMB44EzCwAQAZYBHAEegTNAA.f_wAAAAAAdAA&amp;dl=n-index_n-onetag_pm-db5_rbd_ox-db5_smrt_an-db5_sovrn_3lift"></iframe></body><iframe sandbox="allow-scripts allow-same-origin" id="1822d086546165d8" frameborder="0" allowtransparency="true" marginheight="0" marginwidth="0" width="0" hspace="0" vspace="0" height="0" style="height:0px;width:0px;display:none;" scrolling="no" src="logic_pbjs_data/async_usersync.htm">
+    </iframe></html>
