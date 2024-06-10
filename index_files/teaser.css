@@ -1,0 +1,2 @@
+.show-focus-indicator [data-mod-name=teaser]:focus-within{outline:5px solid #45f7ff;outline-offset:6px}[data-mod-name=teaser] .teaser-wrapper{background-color:#fff;transition:background-color .25s}[data-mod-name=teaser] .teaser-image{background-color:#e7e7e7}[data-mod-name=teaser] .teaser-image .teaser-overlay{background-color:rgba(0,0,0,.8)}[data-mod-name=teaser] .teaser-text .fill,[data-mod-name=teaser] .teaser-text .omit{background-color:#fff}
+/*# sourceMappingURL=teaser.css.map */
